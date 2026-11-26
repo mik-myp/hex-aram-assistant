@@ -279,8 +279,10 @@ export async function askCustomLlmAdvisor(params: {
     .filter(Boolean)
     .join(' → ')
 
-  const systemPrompt =
-    '你是《英雄联盟》端游「海克斯大乱斗（ARAM: Mayhem）」资深教练，专门给新手玩家提供简洁、直白、结论先行的局内决策建议。控制在 220 字以内，使用短要点输出：1）海克斯怎么选/联动；2）下一件装备买什么（说明针对谁）；3）团战一句话打法。'
+  const isCompactBrief = userQuestion === '__MINI_BRIEF__'
+  const systemPrompt = isCompactBrief
+    ? '你是英雄联盟海克斯大乱斗局内速查军师。请用极简3行（总字数严格不超过80字）输出本局锦囊：1.海克斯倾向；2.必买针对装；3.团战一句话注意。不要寒暄。'
+    : '你是《英雄联盟》端游「海克斯大乱斗（ARAM: Mayhem）」资深教练，专门给熟悉LOL但刚接触海斗/新装备的玩家提供简洁、直白、结论先行的局内决策建议。控制在 220 字以内，使用短要点输出：1）海克斯怎么选/联动；2）下一件装备买什么（说明针对谁及新装备效果）；3）团战一句话打法。'
 
   const contextPrompt = [
     `我使用的英雄：${guide.hero.name}（${guide.hero.title}，当前版本 ${guide.hero.tier}，基准胜率 ${(guide.hero.smoothedWinRate * 100).toFixed(1)}%）`,
@@ -292,7 +294,11 @@ export async function askCustomLlmAdvisor(params: {
     `我当前已出装备：${itemNames || '出门装'}`,
     `国服大数据该英雄最强海克斯参考：${topAugText}`,
     `国服常规高胜率三件套：${coreBuildNames || '暂无'}`,
-    userQuestion?.trim() ? `玩家追问：${userQuestion.trim()}` : '请给出本局针对性的海克斯与下一件出装建议。'
+    isCompactBrief
+      ? '请输出不超过80字的3条极简本局战术锦囊。'
+      : userQuestion?.trim()
+        ? `玩家追问：${userQuestion.trim()}`
+        : '请给出本局针对性的海克斯与下一件出装建议。'
   ]
     .filter(Boolean)
     .join('\n')

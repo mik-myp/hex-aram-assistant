@@ -1,18 +1,20 @@
 import React, { useMemo, useState } from 'react'
-import { ArrowUpRight, Search, Sparkles } from 'lucide-react'
+import { Search, Star } from 'lucide-react'
 import { matchesSearchQuery } from '@shared/pinyin'
-import type { BenchSuggestion, HeroMeta, HeroRole, TierGrade } from '@shared/types'
+import type { HeroMeta, HeroRole, TierGrade } from '@shared/types'
 
 interface TierRadarProps {
   heroes: Record<string, HeroMeta>
   selectedHeroId: string | null
   myLiveHeroId: string | null
-  benchSuggestions: BenchSuggestion[]
+  favoriteHeroIds: string[]
   onSelectHero: (heroId: string) => void
+  onToggleFavorite: (heroId: string) => void
 }
 
-const ROLE_FILTERS: Array<{ key: 'all' | HeroRole; label: string }> = [
+const ROLE_FILTERS: Array<{ key: 'all' | 'fav' | HeroRole; label: string }> = [
   { key: 'all', label: '全部' },
+  { key: 'fav', label: '★ 本命' },
   { key: 'mage', label: '法师' },
   { key: 'marksman', label: '射手' },
   { key: 'tank', label: '坦克' },
@@ -33,17 +35,21 @@ export const TierRadar: React.FC<TierRadarProps> = ({
   heroes,
   selectedHeroId,
   myLiveHeroId,
-  benchSuggestions,
-  onSelectHero
+  favoriteHeroIds,
+  onSelectHero,
+  onToggleFavorite
 }) => {
   const [query, setQuery] = useState('')
-  const [role, setRole] = useState<'all' | HeroRole>('all')
+  const [role, setRole] = useState<'all' | 'fav' | HeroRole>('all')
   const [onlyTopTier, setOnlyTopTier] = useState(false)
+
+  const favSet = useMemo(() => new Set(favoriteHeroIds), [favoriteHeroIds])
 
   const filteredHeroes = useMemo(() => {
     return Object.values(heroes)
       .filter((h) => {
-        if (role !== 'all' && !h.roles.includes(role)) return false
+        if (role === 'fav' && !favSet.has(h.id)) return false
+        if (role !== 'all' && role !== 'fav' && !h.roles.includes(role)) return false
         if (onlyTopTier && h.tier !== 'T0' && h.tier !== 'T1') return false
         return matchesSearchQuery(query, {
           name: `${h.name} ${h.title} ${h.alias}`,
@@ -52,64 +58,10 @@ export const TierRadar: React.FC<TierRadarProps> = ({
         })
       })
       .sort((a, b) => b.smoothedWinRate - a.smoothedWinRate)
-  }, [heroes, query, role, onlyTopTier])
+  }, [heroes, query, role, onlyTopTier, favSet])
 
   return (
     <aside className="w-80 shrink-0 border-r border-[#C8AA6E]/20 bg-[#090F1A] flex flex-col h-full">
-      {/* Bench Radar Alert when in Champ Select / Simulator */}
-      {benchSuggestions.length > 0 && (
-        <div className="p-3 border-b border-[#0AC8B9]/30 bg-gradient-to-b from-[#0AC8B9]/12 to-transparent space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#5CF2E5] flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5" />
-              替补席强力候选雷达
-            </span>
-            <span className="text-[11px] text-[#94A3B8]">点击查看出装</span>
-          </div>
-
-          <div className="space-y-1.5">
-            {benchSuggestions.slice(0, 3).map((sug) => {
-              const h = heroes[sug.heroId]
-              if (!h) return null
-              const isStrongUpgrade = sug.deltaVsCurrent >= 0.02 || sug.tier === 'T0'
-              return (
-                <button
-                  key={sug.heroId}
-                  onClick={() => onSelectHero(sug.heroId)}
-                  className={`w-full text-left p-2 rounded border transition flex items-center gap-2.5 cursor-pointer ${
-                    isStrongUpgrade
-                      ? 'bg-[#102334] border-[#0AC8B9]/45 hover:border-[#0AC8B9]'
-                      : 'bg-[#0E1726] border-[#C8AA6E]/20 hover:border-[#C8AA6E]/45'
-                  }`}
-                >
-                  <img
-                    src={h.avatarUrl}
-                    alt={h.name}
-                    className="w-8 h-8 rounded border border-[#C8AA6E]/40 object-cover shrink-0"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-semibold text-[#F0E6D2] truncate">{h.name}</span>
-                      <span
-                        className={`text-[10px] px-1 py-0.2 rounded border font-semibold ${TIER_STYLE[h.tier]}`}
-                      >
-                        {h.tier}
-                      </span>
-                      {sug.deltaVsCurrent > 0 && (
-                        <span className="text-[11px] text-[#0AC8B9] font-medium tabular-nums ml-auto">
-                          +{(sug.deltaVsCurrent * 100).toFixed(1)}%
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-[#94A3B8] truncate">{sug.reason}</p>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Search & Filters */}
       <div className="p-3 space-y-2.5 border-b border-[#C8AA6E]/15">
         <div className="relative">
@@ -144,12 +96,11 @@ export const TierRadar: React.FC<TierRadarProps> = ({
                 : 'bg-[#121C2D] text-[#94A3B8] border-transparent hover:text-[#F0E6D2]'
             }`}
           >
-            仅看 T0/T1
+            仅 T0/T1
           </button>
         </div>
       </div>
 
-      {/* Hero Tier List */}
       <div className="px-3 py-1.5 flex items-center justify-between text-[11px] text-[#64748B] border-b border-[#C8AA6E]/10">
         <span>英雄与定位（共 {filteredHeroes.length} 位）</span>
         <span>平滑胜率 / 梯队</span>
@@ -159,14 +110,13 @@ export const TierRadar: React.FC<TierRadarProps> = ({
         {filteredHeroes.map((hero) => {
           const isSelected = hero.id === selectedHeroId
           const isLiveMe = hero.id === myLiveHeroId
+          const isFav = favSet.has(hero.id)
           return (
-            <button
+            <div
               key={hero.id}
               onClick={() => onSelectHero(hero.id)}
-              className={`w-full px-3 py-2 flex items-center gap-2.5 text-left transition cursor-pointer ${
-                isSelected
-                  ? 'bg-[#17253B] border-l-2 border-l-[#C8AA6E]'
-                  : 'hover:bg-[#111B2B]'
+              className={`w-full px-3 py-2 flex items-center gap-2.5 text-left transition cursor-pointer group ${
+                isSelected ? 'bg-[#17253B] border-l-2 border-l-[#C8AA6E]' : 'hover:bg-[#111B2B]'
               }`}
             >
               <div className="relative shrink-0">
@@ -187,6 +137,21 @@ export const TierRadar: React.FC<TierRadarProps> = ({
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs font-medium text-[#F0E6D2] truncate">{hero.name}</span>
                   <span className="text-[11px] text-[#64748B] truncate">{hero.title}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onToggleFavorite(hero.id)
+                    }}
+                    title={isFav ? '取消本命收藏' : '收藏为我的本命熟练英雄（选人替补席优先提示）'}
+                    className={`ml-auto p-0.5 cursor-pointer transition ${
+                      isFav
+                        ? 'text-amber-300'
+                        : 'text-transparent group-hover:text-slate-500 hover:!text-amber-300'
+                    }`}
+                  >
+                    <Star className={`w-3.5 h-3.5 ${isFav ? 'fill-amber-300' : ''}`} />
+                  </button>
                 </div>
                 <div className="text-[11px] text-[#94A3B8] flex items-center gap-2 tabular-nums">
                   <span>登场 {(hero.pickRate * 100).toFixed(1)}%</span>
@@ -215,7 +180,7 @@ export const TierRadar: React.FC<TierRadarProps> = ({
                   {hero.tier}
                 </span>
               </div>
-            </button>
+            </div>
           )
         })}
       </div>

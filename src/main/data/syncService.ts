@@ -4,7 +4,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { app } from 'electron'
 import { toPinyinIndex } from '@shared/pinyin'
-import type { AugmentMeta, DatasetMetadata, HeroMeta, SeedBundle, TierGrade } from '@shared/types'
+import type {
+  AugmentMeta,
+  DatasetMetadata,
+  DatasetOption,
+  HeroMeta,
+  SeedBundle,
+  TierGrade
+} from '@shared/types'
 
 const MIRROR_BASES: Array<{ source: 'mirror' | 'github'; baseUrl: string }> = [
   { source: 'mirror', baseUrl: 'https://cdn.jsdelivr.net/gh/czgreat/aramhex-data@main' },
@@ -25,7 +32,7 @@ function resolveBundledSeedPath(): string {
 }
 
 function resolveCachedBundlePath(): string {
-  return resolve(app.getPath('userData'), 'cached-seed-bundle.json')
+  return resolve(app.getPath('userData'), 'cached-seed-bundle-v2.json')
 }
 
 function computeTierFromSorted(smoothedWr: number, pickRate: number, sortedDesc: number[]): TierGrade {
@@ -39,8 +46,35 @@ function computeTierFromSorted(smoothedWr: number, pickRate: number, sortedDesc:
   return 'T4'
 }
 
+interface RemoteLatestManifest {
+  patch: string
+  mode: string
+  mode_label?: string
+  bands?: boolean
+  seq: number
+  matches: number
+  snapshot_at: string
+  path: string
+  files?: Record<string, { sha256: string; size: number }>
+}
+
+interface RemoteIndexManifest {
+  datasets?: Array<{
+    patch: string
+    mode: string
+    mode_label?: string
+    path: string
+    bands?: boolean
+    matches?: number
+    matches_detail?: { valid?: number }
+    snapshot_at?: string
+    files?: Record<string, { sha256: string; size: number }>
+  }>
+}
+
 export class DataSyncService {
   private bundle: SeedBundle | null = null
+  private baseBundled: SeedBundle | null = null
 
   async init(): Promise<SeedBundle> {
     const bundledPath = resolveBundledSeedPath()
@@ -52,6 +86,7 @@ export class DataSyncService {
     if (existsSync(bundledPath)) {
       try {
         bundled = JSON.parse(await readFile(bundledPath, 'utf-8')) as SeedBundle
+        this.baseBundled = bundled
       } catch (err) {
         console.warn('[DataSync] Failed to parse bundled seed:', err)
       }
@@ -90,54 +125,253 @@ export class DataSyncService {
     return this.getBundle().meta
   }
 
+  private async pickMirror(): Promise<{ source: 'mirror' | 'github'; baseUrl: string } | null> {
+    for (const candidate of MIRROR_BASES) {
+      try {
+        const res = await fetch(`${candidate.baseUrl}/latest.json`, {
+          signal: AbortSignal.timeout(8000),
+          headers: { 'Cache-Control': 'no-cache' }
+        })
+        if (res.ok) return candidate
+      } catch {
+        // try next
+      }
+    }
+    return null
+  }
+
+  async switchDataset(
+    datasetPath: string,
+    band: 'all' | 'high' = 'all'
+  ): Promise<{ ok: boolean; meta: DatasetMetadata; message: string }> {
+    const current = this.getBundle()
+
+    // Fast path: if switching back to bundled default normal mode 'all'
+    if (
+      this.baseBundled &&
+      datasetPath === `patches/${this.baseBundled.meta.patch}/${this.baseBundled.meta.mode}` &&
+      band === 'all'
+    ) {
+      this.bundle = this.baseBundled
+      return {
+        ok: true,
+        meta: this.bundle.meta,
+        message: `已切换至 ${this.bundle.meta.patch} · ${this.bundle.meta.modeLabel}（全体样本）`
+      }
+    }
+
+    const mirror = await this.pickMirror()
+    if (!mirror) {
+      return {
+        ok: false,
+        meta: current.meta,
+        message: '当前离线无法拉取其他规则/分段数据集，保持当前离线数据包'
+      }
+    }
+
+    const targetOption = (current.meta.availableDatasets || []).find((d) => d.path === datasetPath)
+    const effectiveBand = band === 'high' && targetOption?.bandsAvailable ? 'high' : 'all'
+    const subPrefix = effectiveBand === 'high' ? `${datasetPath}/bands/high` : datasetPath
+
+    const fetchJson = async <T>(relPath: string): Promise<T> => {
+      const res = await fetch(`${mirror.baseUrl}/${relPath}`, {
+        signal: AbortSignal.timeout(25000)
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status} for ${relPath}`)
+      return (await res.json()) as T
+    }
+
+    const [rawHeroes, rawAugments, rawHeroAugments, rawCoreBuilds] = await Promise.all([
+      fetchJson<
+        Record<
+          string,
+          {
+            name: string
+            title: string
+            games: number
+            wins: number
+            win_rate: number
+            pick_rate: number
+            rank: number
+          }
+        >
+      >(`${subPrefix}/heroes.json`),
+      fetchJson<Record<string, { name: string; rarity: 'silver' | 'gold' | 'prismatic' }>>(
+        `${datasetPath}/augments.json`
+      ),
+      fetchJson<Record<string, Record<string, { games: number; wins: number; low_sample?: boolean }>>>(
+        `${subPrefix}/hero_augments.json`
+      ),
+      fetchJson<
+        Record<
+          string,
+          Array<{
+            items: string[]
+            ordered?: boolean
+            games: number
+            wins: number
+            win?: number
+            pick?: number
+          }>
+        >
+      >(`${subPrefix}/core_builds.json`).catch(() =>
+        fetchJson<
+          Record<
+            string,
+            Array<{
+              items: string[]
+              ordered?: boolean
+              games: number
+              wins: number
+              win?: number
+              pick?: number
+            }>
+          >
+        >(`${datasetPath}/core_builds.json`)
+      )
+    ])
+
+    const refBundle = this.baseBundled || current
+    const sortedWr = Object.values(rawHeroes)
+      .map((h) => (h.wins + 150) / (h.games + 300))
+      .sort((a, b) => b - a)
+
+    const nextHeroes: Record<string, HeroMeta> = {}
+    for (const [id, h] of Object.entries(rawHeroes)) {
+      const prev = refBundle.heroes[id]
+      const swr = Number(((h.wins + 150) / (h.games + 300)).toFixed(5))
+      const py = prev
+        ? { full: prev.pinyinFull, initials: prev.pinyinInitials }
+        : toPinyinIndex(`${h.name}${h.title}`)
+      nextHeroes[id] = {
+        id,
+        alias: prev?.alias || `Hero${id}`,
+        name: h.name,
+        title: h.title,
+        roles: prev?.roles || ['fighter'],
+        damageType: prev?.damageType || 'MIXED',
+        avatarUrl: prev?.avatarUrl || '',
+        games: h.games,
+        wins: h.wins,
+        winRate: h.win_rate,
+        smoothedWinRate: swr,
+        pickRate: h.pick_rate,
+        rank: h.rank,
+        tier: computeTierFromSorted(swr, h.pick_rate, sortedWr),
+        skillOrder: prev?.skillOrder,
+        topShoes: prev?.topShoes,
+        pinyinFull: py.full,
+        pinyinInitials: py.initials
+      }
+    }
+
+    const nextAugments: Record<string, AugmentMeta> = { ...refBundle.augments }
+    for (const [id, aug] of Object.entries(rawAugments)) {
+      const prev = refBundle.augments[id]
+      const py = prev ? { full: prev.pinyinFull, initials: prev.pinyinInitials } : toPinyinIndex(aug.name)
+      nextAugments[id] = {
+        id,
+        name: aug.name,
+        rarity: prev?.rarity || aug.rarity,
+        desc: prev?.desc || `${aug.name}`,
+        iconUrl: prev?.iconUrl || '',
+        tags: prev?.tags || ['general'],
+        pinyinFull: py.full,
+        pinyinInitials: py.initials
+      }
+    }
+
+    const nextHeroAugments: SeedBundle['heroAugments'] = {}
+    for (const [heroId, augMap] of Object.entries(rawHeroAugments)) {
+      nextHeroAugments[heroId] = Object.entries(augMap)
+        .filter(([, st]) => st.games >= 15)
+        .map(([augId, st]) => [augId, st.games, st.wins, st.low_sample ? 1 : 0])
+    }
+
+    const nextCoreBuilds: SeedBundle['coreBuilds'] = {}
+    for (const [heroId, list] of Object.entries(rawCoreBuilds)) {
+      nextCoreBuilds[heroId] = (list || []).slice(0, 3).map((b) => ({
+        items: b.items,
+        ordered: Boolean(b.ordered),
+        games: b.games,
+        winRate: Number((b.win ?? b.wins / Math.max(1, b.games)).toFixed(4)),
+        pickRate: Number((b.pick ?? 0).toFixed(4))
+      }))
+    }
+
+    this.bundle = {
+      ...refBundle,
+      meta: {
+        ...refBundle.meta,
+        patch: targetOption?.patch || refBundle.meta.patch,
+        mode: targetOption?.mode || 'normal',
+        modeLabel: targetOption?.modeLabel || '常规',
+        activeBand: effectiveBand,
+        bandsAvailable: Boolean(targetOption?.bandsAvailable),
+        matchesValid: targetOption?.matchesValid || refBundle.meta.matchesValid,
+        fromSource: mirror.source
+      },
+      heroes: nextHeroes,
+      augments: nextAugments,
+      heroAugments: nextHeroAugments,
+      coreBuilds: nextCoreBuilds
+    }
+
+    return {
+      ok: true,
+      meta: this.bundle.meta,
+      message: `已切换至 ${this.bundle.meta.patch} · ${this.bundle.meta.modeLabel}（${
+        effectiveBand === 'high' ? '前 5% 高玩分段' : '全体样本'
+      }）`
+    }
+  }
+
   async checkAndSync(force = false): Promise<{
     updated: boolean
     meta: DatasetMetadata
     message: string
   }> {
-    interface RemoteLatestManifest {
-      patch: string
-      mode: string
-      mode_label?: string
-      seq: number
-      matches: number
-      snapshot_at: string
-      path: string
-      files?: Record<string, { sha256: string; size: number }>
-    }
-
     const current = this.getBundle()
-    let latestJson: RemoteLatestManifest | null = null
-    let chosenMirror: { source: 'mirror' | 'github'; baseUrl: string } | null = null
+    const chosenMirror = await this.pickMirror()
 
-    for (const candidate of MIRROR_BASES) {
-      try {
-        const res = await fetch(`${candidate.baseUrl}/latest.json`, {
-          signal: AbortSignal.timeout(10000),
-          headers: { 'Cache-Control': 'no-cache' }
-        })
-        if (res.ok) {
-          latestJson = (await res.json()) as RemoteLatestManifest
-          chosenMirror = candidate
-          break
-        }
-      } catch {
-        // Try next mirror
-      }
-    }
-
-    if (!latestJson || !chosenMirror) {
+    if (!chosenMirror) {
       return {
         updated: false,
         meta: current.meta,
-        message: '当前处于离线状态或远端镜像暂不可达，已继续使用本地离线包'
+        message: '当前离线或镜像暂不可达，已继续使用内置离线包'
       }
     }
+
+    const [latestJson, indexJson] = await Promise.all([
+      fetch(`${chosenMirror.baseUrl}/latest.json`, { signal: AbortSignal.timeout(10000) }).then(
+        (r) => r.json() as Promise<RemoteLatestManifest>
+      ),
+      fetch(`${chosenMirror.baseUrl}/index.json`, { signal: AbortSignal.timeout(10000) })
+        .then((r) => r.json() as Promise<RemoteIndexManifest>)
+        .catch(() => ({ datasets: [] } as RemoteIndexManifest))
+    ])
+
+    const availableDatasets: DatasetOption[] = (indexJson.datasets || []).slice(0, 4).map((ds) => ({
+      id: `${ds.patch}-${ds.mode}`,
+      patch: ds.patch,
+      mode: ds.mode,
+      modeLabel: ds.mode_label || (ds.mode === 'normal' ? '常规' : ds.mode),
+      path: ds.path,
+      bandsAvailable: Boolean(ds.bands),
+      activeBand: 'all',
+      matchesValid: ds.matches_detail?.valid || ds.matches || 0
+    }))
 
     if (!force && latestJson.seq <= current.meta.seq) {
+      if (availableDatasets.length > 0) {
+        this.bundle = {
+          ...current,
+          meta: { ...current.meta, availableDatasets }
+        }
+      }
       return {
         updated: false,
-        meta: current.meta,
+        meta: this.bundle!.meta,
         message: `已是最新统计版本（${latestJson.patch} · 序号 #${latestJson.seq}）`
       }
     }
@@ -166,16 +400,56 @@ export class DataSyncService {
       rawHeroAugmentItems,
       rawHeroSpells
     ] = await Promise.all([
-      fetchVerifiedJson<Record<string, { name: string; title: string; games: number; wins: number; win_rate: number; pick_rate: number; rank: number }>>('heroes.json'),
-      fetchVerifiedJson<Record<string, { name: string; rarity: 'silver' | 'gold' | 'prismatic' }>>('augments.json'),
-      fetchVerifiedJson<Record<string, Record<string, { games: number; wins: number; low_sample?: boolean }>>>('hero_augments.json'),
-      fetchVerifiedJson<Record<string, Array<{ items: string[]; ordered?: boolean; games: number; wins: number; win?: number; pick?: number }>>>('core_builds.json'),
-      fetchVerifiedJson<Record<string, Record<string, { games: number; wins: number }>>>('hero_items.json'),
-      fetchVerifiedJson<Record<string, Record<string, { items?: Array<{ item: string; name?: string; games: number; wins: number }> }>>>('hero_augment_items.json'),
-      fetchVerifiedJson<Record<string, Record<string, { games: number; wins: number }>>>('hero_spells.json')
+      fetchVerifiedJson<
+        Record<
+          string,
+          {
+            name: string
+            title: string
+            games: number
+            wins: number
+            win_rate: number
+            pick_rate: number
+            rank: number
+          }
+        >
+      >('heroes.json'),
+      fetchVerifiedJson<Record<string, { name: string; rarity: 'silver' | 'gold' | 'prismatic' }>>(
+        'augments.json'
+      ),
+      fetchVerifiedJson<
+        Record<string, Record<string, { games: number; wins: number; low_sample?: boolean }>>
+      >('hero_augments.json'),
+      fetchVerifiedJson<
+        Record<
+          string,
+          Array<{
+            items: string[]
+            ordered?: boolean
+            games: number
+            wins: number
+            win?: number
+            pick?: number
+          }>
+        >
+      >('core_builds.json'),
+      fetchVerifiedJson<Record<string, Record<string, { games: number; wins: number }>>>(
+        'hero_items.json'
+      ),
+      fetchVerifiedJson<
+        Record<
+          string,
+          Record<
+            string,
+            { items?: Array<{ item: string; name?: string; games: number; wins: number }> }
+          >
+        >
+      >('hero_augment_items.json'),
+      fetchVerifiedJson<Record<string, Record<string, { games: number; wins: number }>>>(
+        'hero_spells.json'
+      )
     ])
 
-    // Merge with existing rich hero/augment icons & descriptions
     const sortedWr = Object.values(rawHeroes)
       .map((h) => (h.wins + 150) / (h.games + 300))
       .sort((a, b) => b - a)
@@ -184,7 +458,9 @@ export class DataSyncService {
     for (const [id, h] of Object.entries(rawHeroes)) {
       const prev = current.heroes[id]
       const swr = Number(((h.wins + 150) / (h.games + 300)).toFixed(5))
-      const py = prev ? { full: prev.pinyinFull, initials: prev.pinyinInitials } : toPinyinIndex(`${h.name}${h.title}`)
+      const py = prev
+        ? { full: prev.pinyinFull, initials: prev.pinyinInitials }
+        : toPinyinIndex(`${h.name}${h.title}`)
       nextHeroes[id] = {
         id,
         alias: prev?.alias || `Hero${id}`,
@@ -200,6 +476,8 @@ export class DataSyncService {
         pickRate: h.pick_rate,
         rank: h.rank,
         tier: computeTierFromSorted(swr, h.pick_rate, sortedWr),
+        skillOrder: prev?.skillOrder,
+        topShoes: prev?.topShoes,
         pinyinFull: py.full,
         pinyinInitials: py.initials
       }
@@ -212,8 +490,8 @@ export class DataSyncService {
       nextAugments[id] = {
         id,
         name: aug.name,
-        rarity: aug.rarity,
-        desc: prev?.desc || `${aug.rarity === 'prismatic' ? '棱彩阶' : aug.rarity === 'gold' ? '黄金阶' : '白银阶'}海克斯强化符文`,
+        rarity: prev?.rarity || aug.rarity,
+        desc: prev?.desc || aug.name,
         iconUrl: prev?.iconUrl || '',
         tags: prev?.tags || ['general'],
         pinyinFull: py.full,
@@ -242,7 +520,12 @@ export class DataSyncService {
     const nextHeroItems: SeedBundle['heroItems'] = {}
     for (const [heroId, itemMap] of Object.entries(rawHeroItems)) {
       nextHeroItems[heroId] = Object.entries(itemMap)
-        .filter(([itemId, st]) => st.games >= 80 && current.items[itemId] && !(current.items[itemId].types || []).includes('Boots'))
+        .filter(
+          ([itemId, st]) =>
+            st.games >= 80 &&
+            current.items[itemId] &&
+            !(current.items[itemId].types || []).includes('Boots')
+        )
         .sort((a, b) => b[1].games - a[1].games)
         .slice(0, 18)
         .map(([itemId, st]) => [itemId, st.games, st.wins])
@@ -255,7 +538,12 @@ export class DataSyncService {
         if (!obj.items?.length) continue
         sub[augId] = obj.items
           .slice(0, 3)
-          .map((it) => [String(it.item), it.name || current.items[it.item]?.name || '', it.games, it.wins])
+          .map((it) => [
+            String(it.item),
+            it.name || current.items[it.item]?.name || '',
+            it.games,
+            it.wins
+          ])
       }
       if (Object.keys(sub).length > 0) nextHeroAugmentItems[heroId] = sub
     }
@@ -274,13 +562,16 @@ export class DataSyncService {
         patch: latestJson.patch,
         mode: latestJson.mode,
         modeLabel: latestJson.mode_label || '常规',
+        activeBand: 'all',
+        bandsAvailable: Boolean(latestJson.bands),
         seq: latestJson.seq,
         matchesValid: latestJson.matches,
         snapshotAt: latestJson.snapshot_at,
         sourceRepo: 'https://github.com/czgreat/aramhex-data',
         license: 'CC BY-NC 4.0',
         syncedAt: new Date().toISOString(),
-        fromSource: chosenMirror.source
+        fromSource: chosenMirror.source,
+        availableDatasets: availableDatasets.length > 0 ? availableDatasets : current.meta.availableDatasets
       },
       heroes: nextHeroes,
       augments: nextAugments,
@@ -300,7 +591,9 @@ export class DataSyncService {
     return {
       updated: true,
       meta: updatedBundle.meta,
-      message: `已同步最新 ${updatedBundle.meta.patch} 版本国服统计（${(updatedBundle.meta.matchesValid / 10000).toFixed(0)}万场有效对局）`
+      message: `已同步最新 ${updatedBundle.meta.patch} 版本国服统计（${(
+        updatedBundle.meta.matchesValid / 10000
+      ).toFixed(0)}万场有效对局）`
     }
   }
 }

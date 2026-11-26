@@ -6,6 +6,8 @@ export type AugmentVerdict = 'S+' | 'S' | 'A' | 'B' | 'TRAP'
 
 export type HeroRole = 'mage' | 'marksman' | 'tank' | 'fighter' | 'assassin' | 'support'
 
+export type OverlayOpacityMode = 'solid' | 'glass' | 'clear'
+
 export interface HeroMeta {
   id: string
   alias: string
@@ -21,6 +23,8 @@ export interface HeroMeta {
   pickRate: number
   rank: number
   tier: TierGrade
+  skillOrder?: string
+  topShoes?: Array<{ itemId: string; pickRate: number; winRate: number }>
   pinyinFull: string
   pinyinInitials: string
 }
@@ -43,6 +47,8 @@ export interface ItemMeta {
   category: string
   types: string[]
   totalGold: number
+  brief: string
+  fullDesc: string
 }
 
 export interface HeroAugmentStat {
@@ -83,20 +89,60 @@ export interface ArchetypeCard {
   avgDeltaWinRate: number
 }
 
+export interface AugmentPivotBuild {
+  augmentId: string
+  items: Array<{
+    itemId: string
+    name: string
+    winRate: number
+    games: number
+  }>
+}
+
 export interface HeroDetailGuide {
   hero: HeroMeta
   bestSpells: Array<{ spellIds: string[]; label: string; winRate: number; games: number }>
   augments: HeroAugmentStat[]
   trapAugments: HeroAugmentStat[]
   coreBuilds: CoreBuild[]
+  augmentPivotBuilds: AugmentPivotBuild[]
   situationalItems: Array<{ itemId: string; winRate: number; deltaWinRate: number; games: number }>
   archetypes: ArchetypeCard[]
+}
+
+export interface AugmentHeroFit {
+  heroId: string
+  games: number
+  smoothedWinRate: number
+  deltaWinRate: number
+  verdict: AugmentVerdict
+}
+
+export interface AugmentReverseDetail {
+  augment: AugmentMeta
+  avgWinRate: number
+  totalPickGames: number
+  bestHeroes: AugmentHeroFit[]
+  trapHeroes: AugmentHeroFit[]
+}
+
+export interface DatasetOption {
+  id: string
+  patch: string
+  mode: string
+  modeLabel: string
+  path: string
+  bandsAvailable: boolean
+  activeBand: 'all' | 'high'
+  matchesValid: number
 }
 
 export interface DatasetMetadata {
   patch: string
   mode: string
   modeLabel: string
+  activeBand: 'all' | 'high'
+  bandsAvailable: boolean
   seq: number
   matchesValid: number
   snapshotAt: string
@@ -104,6 +150,7 @@ export interface DatasetMetadata {
   license: string
   syncedAt: string
   fromSource: 'bundled' | 'cache' | 'mirror' | 'github'
+  availableDatasets?: DatasetOption[]
 }
 
 export interface SeedBundle {
@@ -118,11 +165,22 @@ export interface SeedBundle {
   heroSpells: Record<string, Array<[string, number, number]>>
 }
 
+export interface UserPreferences {
+  preferredRoles: HeroRole[]
+  favoriteHeroIds: string[]
+  overlayOpacity: OverlayOpacityMode
+  autoOcrOnMilestone: boolean
+}
+
 export interface BenchSuggestion {
   heroId: string
   tier: TierGrade
   winRate: number
   deltaVsCurrent: number
+  isFavorite: boolean
+  matchesPreferredRole: boolean
+  isMayhemBonusHero: boolean
+  score: number
   reason: string
 }
 
@@ -134,6 +192,7 @@ export interface GameLiveState {
   benchHeroIds: string[]
   enemyHeroIds: string[]
   currentLevel: number
+  isDead?: boolean
   isAugmentMilestone: boolean
   currentItemIds: string[]
   pickedAugmentIds: string[]

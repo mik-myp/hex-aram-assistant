@@ -1,12 +1,13 @@
 import React, { useState } from 'react'
-import { Check, ExternalLink, KeyRound, Keyboard, Shield, X } from 'lucide-react'
-import type { AiSettings, DatasetMetadata } from '@shared/types'
+import { Check, ExternalLink, KeyRound, Keyboard, ScanEye, Shield, X } from 'lucide-react'
+import type { AiSettings, DatasetMetadata, UserPreferences } from '@shared/types'
 
 interface SettingsModalProps {
   settings: AiSettings
+  prefs: UserPreferences
   meta: DatasetMetadata
   onClose: () => void
-  onSave: (next: AiSettings) => Promise<void>
+  onSave: (nextSettings: AiSettings, nextPrefs: Partial<UserPreferences>) => Promise<void>
 }
 
 const PROVIDER_PRESETS = [
@@ -34,16 +35,18 @@ const PROVIDER_PRESETS = [
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
+  prefs,
   meta,
   onClose,
   onSave
 }) => {
   const [form, setForm] = useState<AiSettings>({ ...settings })
+  const [autoOcr, setAutoOcr] = useState<boolean>(prefs.autoOcrOnMilestone)
   const [saved, setSaved] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    await onSave(form)
+    await onSave(form, { autoOcrOnMilestone: autoOcr })
     setSaved(true)
     setTimeout(() => {
       setSaved(false)
@@ -65,15 +68,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-5 text-sm max-h-[80vh] overflow-y-auto">
+          {/* Smart 2999 Auto OCR */}
+          <section className="space-y-2">
+            <div className="flex items-center gap-2 text-[#E2C992] font-medium">
+              <ScanEye className="w-4 h-4" />
+              <span>零掉帧智能识屏设置</span>
+            </div>
+            <label className="flex items-start gap-2.5 p-3 rounded bg-[#111B2C] border border-[#C8AA6E]/25 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoOcr}
+                onChange={(e) => setAutoOcr(e.target.checked)}
+                className="mt-0.5 accent-[#0AC8B9]"
+              />
+              <div className="text-xs space-y-0.5">
+                <div className="font-semibold text-[#F0E6D2]">
+                  开启 2999 事件驱动「选卡窗口期」自动识屏
+                </div>
+                <p className="text-[#94A3B8]">
+                  平时存活团战时 0 截屏绝对不掉帧；仅在开局 3 级或达到 7 / 11 / 15 级阵亡回泉水时自动检测屏幕三选一并弹出悬浮推荐。
+                </p>
+              </div>
+            </label>
+          </section>
+
           {/* Shortcuts */}
-          <section className="space-y-2.5">
+          <section className="space-y-2.5 pt-2 border-t border-[#C8AA6E]/15">
             <div className="flex items-center gap-2 text-[#E2C992] font-medium">
               <Keyboard className="w-4 h-4" />
               <span>局内全局快捷键</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="block space-y-1">
-                <span className="text-xs text-[#94A3B8]">呼出/隐藏置顶迷你悬浮窗</span>
+                <span className="text-xs text-[#94A3B8]">呼出/隐藏悬浮窗（若已穿透则先解锁）</span>
                 <input
                   value={form.shortcutOverlay}
                   onChange={(e) => setForm({ ...form, shortcutOverlay: e.target.value })}
@@ -82,7 +109,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-xs text-[#94A3B8]">一键截屏 OCR 识别三选一</span>
+                <span className="text-xs text-[#94A3B8]">手动一键截屏 OCR 识别三选一</span>
                 <input
                   value={form.shortcutOcr}
                   onChange={(e) => setForm({ ...form, shortcutOcr: e.target.value })}
@@ -98,9 +125,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-[#E2C992] font-medium">
                 <KeyRound className="w-4 h-4" />
-                <span>进阶大模型 API（OpenAI 兼容格式）</span>
+                <span>进阶大模型 API（供主窗口对话 & 悬浮窗 80 字锦囊使用）</span>
               </div>
-              <span className="text-[11px] text-[#0AC8B9]">不填也可正常使用本地阵容克制引擎</span>
             </div>
 
             <div className="flex flex-wrap gap-1.5">
@@ -163,7 +189,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>数据口径与开源合规声明</span>
             </div>
             <p>
-              当前统计包：版本 <strong className="text-[#F0E6D2]">{meta.patch}</strong>（序号 #{meta.seq}，有效样本{' '}
+              当前统计包：版本 <strong className="text-[#F0E6D2]">{meta.patch}</strong> ·{' '}
+              <strong className="text-[#E2C992]">{meta.modeLabel}</strong>（有效样本{' '}
               <strong className="text-[#F0E6D2] tabular-nums">
                 {meta.matchesValid.toLocaleString()}
               </strong>{' '}

@@ -2,8 +2,11 @@ import React, { useMemo, useState } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
+  BookMarked,
   Check,
   Flame,
+  Footprints,
+  GitBranch,
   Plus,
   Scale,
   Search,
@@ -26,6 +29,7 @@ interface HeroGuideProps {
   candidateAugmentIds: string[]
   onTogglePickAugment: (augId: string) => void
   onAddCandidateAugment: (augId: string) => void
+  onOpenInAugmentDex: (augId: string) => void
 }
 
 export const RARITY_LABEL: Record<AugmentRarity, string> = {
@@ -55,7 +59,8 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
   pickedAugmentIds,
   candidateAugmentIds,
   onTogglePickAugment,
-  onAddCandidateAugment
+  onAddCandidateAugment,
+  onOpenInAugmentDex
 }) => {
   const [rarityFilter, setRarityFilter] = useState<'all' | AugmentRarity>('all')
   const [augQuery, setAugQuery] = useState('')
@@ -76,14 +81,14 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
 
   return (
     <div className="space-y-6 pb-8">
-      {/* 1. Dynamic Beginner Archetype Synergies */}
+      {/* 1. Dynamic Archetype Synergies */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
           <h3 className="text-sm font-semibold text-[#F0E6D2] flex items-center gap-2">
             <Flame className="w-4 h-4 text-[#C8AA6E]" />
-            <span>核心流派套路与出装转型（算法结合版本大数据动态推导）</span>
+            <span>海克斯化学反应与变阵套路（针对转海斗与回归玩家动态归纳）</span>
           </h3>
-          <span className="text-xs text-[#94A3B8]">点击流派内的海克斯可直接记入本局已拿槽位</span>
+          <span className="text-xs text-[#94A3B8]">点击海克斯标签可记入本局槽位</span>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
@@ -102,10 +107,9 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
 
                 <p className="text-xs text-[#C8C1B2] leading-relaxed">{arc.summary}</p>
 
-                {/* Core augments */}
                 <div className="pt-1 space-y-1.5">
                   <div className="text-[11px] text-[#94A3B8]">
-                    流派核心海克斯（平均净增幅{' '}
+                    核心海克斯（平均净增幅{' '}
                     <span className="text-[#0AC8B9] font-semibold tabular-nums">
                       {arc.avgDeltaWinRate >= 0 ? '+' : ''}
                       {(arc.avgDeltaWinRate * 100).toFixed(1)}%
@@ -139,21 +143,21 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                 </div>
               </div>
 
-              {/* Pivot items */}
               <div className="pt-2.5 border-t border-[#C8AA6E]/15 space-y-2">
                 <p className="text-[11px] text-[#E2C992] leading-snug">{arc.itemPivotTip}</p>
                 {arc.recommendedItems.length > 0 && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {arc.recommendedItems.map((iid) => {
                       const im = items[iid]
                       if (!im) return null
                       return (
                         <div
                           key={iid}
-                          className="flex items-center gap-1 bg-[#141F30] px-1.5 py-1 rounded border border-[#C8AA6E]/20 text-[11px] text-[#C8C1B2]"
+                          title={im.fullDesc || im.brief}
+                          className="flex items-center gap-1.5 bg-[#141F30] px-2 py-1 rounded border border-[#C8AA6E]/20 text-[11px] text-[#C8C1B2]"
                         >
                           <img src={im.iconUrl} alt={im.name} className="w-4 h-4 rounded-sm" />
-                          <span className="truncate max-w-20">{im.name}</span>
+                          <span>{im.name}</span>
                         </div>
                       )
                     })}
@@ -165,72 +169,162 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
         </div>
       </section>
 
-      {/* 2. Ordered Core Builds + Situational Items */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-7 hex-panel rounded-lg p-4 space-y-3">
-          <div className="flex items-center justify-between">
+      {/* 2. Standard Ordered Core Builds (with New-Item 1-line Briefs + Shoes) vs Augment Pivot Builds & Trap List */}
+      <section className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        {/* Left 7 cols: Standard Core Builds + New Item Quick-Read + Shoes */}
+        <div className="xl:col-span-7 hex-panel rounded-lg p-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-[#F0E6D2] flex items-center gap-2">
               <ShoppingBag className="w-4 h-4 text-[#C8AA6E]" />
-              <span>高胜率核心三件套（严格按合成先后顺序）</span>
+              <span>常规三件套合成顺序 & 新赛季装备速懂</span>
             </h3>
-            <span className="text-[11px] text-[#94A3B8]">排除特殊赠装干扰口径</span>
+            {guide.hero.topShoes && guide.hero.topShoes.length > 0 && (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-[#94A3B8] flex items-center gap-1">
+                  <Footprints className="w-3.5 h-3.5 text-[#C8AA6E]" />
+                  推荐鞋:
+                </span>
+                {guide.hero.topShoes.map((sh) => {
+                  const im = items[sh.itemId]
+                  if (!im) return null
+                  return (
+                    <span
+                      key={sh.itemId}
+                      title={im.fullDesc || im.brief}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#141F30] border border-[#C8AA6E]/25 text-[11px] text-[#F0E6D2] tabular-nums"
+                    >
+                      <img src={im.iconUrl} alt={im.name} className="w-4 h-4 rounded-sm" />
+                      <span>{im.name}</span>
+                      <span className="text-[#0AC8B9]">{(sh.winRate * 100).toFixed(0)}%</span>
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {guide.coreBuilds.length === 0 ? (
-            <p className="text-xs text-[#94A3B8]">该英雄机制特殊（如窃取形态类），请参考右侧单件高胜率神装。</p>
+            <p className="text-xs text-[#94A3B8]">
+              该英雄机制特殊（如变身窃取类），装备请结合本局克制灵活选择：
+              {guide.situationalItems
+                .slice(0, 4)
+                .map((s) => items[s.itemId]?.name)
+                .filter(Boolean)
+                .join(' / ')}
+            </p>
           ) : (
             <div className="space-y-2.5">
               {guide.coreBuilds.map((b, idx) => (
                 <div
                   key={idx}
-                  className="p-2.5 rounded bg-[#111B2C] border border-[#C8AA6E]/15 flex items-center justify-between gap-3"
+                  className="p-3 rounded bg-[#111B2C] border border-[#C8AA6E]/15 space-y-2"
                 >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {b.items.map((iid, stepIdx) => {
-                      const im = items[iid]
-                      return (
-                        <React.Fragment key={`${iid}-${stepIdx}`}>
-                          <div className="flex items-center gap-2 bg-[#0B111D] px-2.5 py-1.5 rounded border border-[#C8AA6E]/25">
-                            {im?.iconUrl && (
-                              <img
-                                src={im.iconUrl}
-                                alt={im.name}
-                                className="w-7 h-7 rounded border border-[#C8AA6E]/35"
-                              />
-                            )}
-                            <div>
-                              <div className="text-[10px] text-[#94A3B8]">第 {stepIdx + 1} 件</div>
-                              <div className="text-xs font-medium text-[#F0E6D2]">
-                                {im?.name || iid}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {b.items.map((iid, stepIdx) => {
+                        const im = items[iid]
+                        return (
+                          <React.Fragment key={`${iid}-${stepIdx}`}>
+                            <div
+                              title={im?.fullDesc || im?.brief}
+                              className="flex items-center gap-2 bg-[#0B111D] px-2.5 py-1.5 rounded border border-[#C8AA6E]/25 max-w-52"
+                            >
+                              {im?.iconUrl && (
+                                <img
+                                  src={im.iconUrl}
+                                  alt={im.name}
+                                  className="w-8 h-8 rounded border border-[#C8AA6E]/35 shrink-0"
+                                />
+                              )}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] text-[#C8AA6E]">
+                                    第{stepIdx + 1}件
+                                  </span>
+                                  <span className="text-xs font-semibold text-[#F0E6D2] truncate">
+                                    {im?.name || iid}
+                                  </span>
+                                </div>
+                                {im?.brief && (
+                                  <div className="text-[10px] text-[#94A3B8] truncate">
+                                    {im.brief}
+                                  </div>
+                                )}
                               </div>
                             </div>
-                          </div>
-                          {stepIdx < b.items.length - 1 && (
-                            <ArrowRight className="w-3.5 h-3.5 text-[#C8AA6E]/70 shrink-0" />
-                          )}
-                        </React.Fragment>
-                      )
-                    })}
-                  </div>
-
-                  <div className="text-right shrink-0 tabular-nums">
-                    <div className="text-xs font-semibold text-[#0AC8B9]">
-                      胜率 {(b.winRate * 100).toFixed(1)}%
+                            {stepIdx < b.items.length - 1 && (
+                              <ArrowRight className="w-3.5 h-3.5 text-[#C8AA6E]/70 shrink-0" />
+                            )}
+                          </React.Fragment>
+                        )
+                      })}
                     </div>
-                    <div className="text-[11px] text-[#94A3B8]">{b.games.toLocaleString()} 局</div>
+
+                    <div className="text-right shrink-0 tabular-nums">
+                      <div className="text-xs font-semibold text-[#0AC8B9]">
+                        胜率 {(b.winRate * 100).toFixed(1)}%
+                      </div>
+                      <div className="text-[11px] text-[#94A3B8]">{b.games.toLocaleString()} 局</div>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
+
+          {/* Augment-Specific Pivot First Items (e.g. Destiny Weapon / Special Quest Augments) */}
+          {guide.augmentPivotBuilds.length > 0 && (
+            <div className="pt-3 border-t border-[#C8AA6E]/15 space-y-2">
+              <div className="text-xs font-semibold text-[#E2C992] flex items-center gap-1.5">
+                <GitBranch className="w-3.5 h-3.5" />
+                <span>拿到特定海克斯后的「变阵首件参考」（如命运之武器等特殊机制）</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {guide.augmentPivotBuilds.slice(0, 4).map((pv) => {
+                  const am = augments[pv.augmentId]
+                  if (!am) return null
+                  return (
+                    <div
+                      key={pv.augmentId}
+                      className="p-2 rounded bg-[#0B111D] border border-[#C8AA6E]/20 flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {am.iconUrl && <img src={am.iconUrl} alt="" className="w-5 h-5 rounded" />}
+                        <span className="font-medium text-[#F0E6D2] truncate">{am.name}</span>
+                        <span className="text-[#64748B]">→</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {pv.items.slice(0, 2).map((bi) => {
+                          const im = items[bi.itemId]
+                          return (
+                            <span
+                              key={bi.itemId}
+                              title={im?.fullDesc || im?.brief}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#142033] border border-[#0AC8B9]/30 text-[11px] text-[#5CF2E5] tabular-nums"
+                            >
+                              {im?.iconUrl && (
+                                <img src={im.iconUrl} alt="" className="w-3.5 h-3.5 rounded-sm" />
+                              )}
+                              <span>{bi.name}</span>
+                              <span>{(bi.winRate * 100).toFixed(0)}%</span>
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Trap Warning Red List */}
-        <div className="lg:col-span-5 rounded-lg p-4 bg-gradient-to-br from-rose-950/35 to-[#0C1320] border border-rose-500/35 space-y-3">
+        {/* Right 5 cols: Trap Warning Red List */}
+        <div className="xl:col-span-5 rounded-lg p-4 bg-gradient-to-br from-rose-950/35 to-[#0C1320] border border-rose-500/35 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-rose-200 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-rose-400" />
-              <span>新手避坑红榜（看似美好实则掉胜率）</span>
+              <span>该英雄避坑红榜（字面诱人但实际掉胜率）</span>
             </h3>
           </div>
 
@@ -238,21 +332,25 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
             <p className="text-xs text-[#94A3B8]">该英雄适应面极广，暂无明显大幅倒挂的高频陷阱符文。</p>
           ) : (
             <div className="space-y-2">
-              {guide.trapAugments.slice(0, 4).map((trap) => {
+              {guide.trapAugments.slice(0, 5).map((trap) => {
                 const m = augments[trap.augmentId]
                 if (!m) return null
                 return (
                   <div
                     key={trap.augmentId}
-                    className="p-2 rounded bg-[#0B101B]/85 border border-rose-500/25 flex items-center justify-between gap-2"
+                    className="p-2.5 rounded bg-[#0B101B]/90 border border-rose-500/25 flex items-start justify-between gap-2.5"
                   >
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-start gap-2.5 min-w-0">
                       {m.iconUrl && (
-                        <img src={m.iconUrl} alt={m.name} className="w-7 h-7 rounded bg-black/40" />
+                        <img
+                          src={m.iconUrl}
+                          alt={m.name}
+                          className="w-8 h-8 rounded bg-black/40 shrink-0 mt-0.5"
+                        />
                       )}
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-medium text-[#F0E6D2] truncate">
+                          <span className="text-xs font-semibold text-[#F0E6D2] truncate">
                             {m.name}
                           </span>
                           <span
@@ -261,12 +359,12 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                             {RARITY_LABEL[m.rarity]}
                           </span>
                         </div>
-                        <div className="text-[11px] text-[#94A3B8] truncate">{m.desc}</div>
+                        <p className="text-[11px] text-[#94A3B8] line-clamp-2 mt-0.5">{m.desc}</p>
                       </div>
                     </div>
 
                     <div className="text-right shrink-0 tabular-nums">
-                      <div className="text-xs font-semibold text-rose-400">
+                      <div className="text-xs font-bold text-rose-400">
                         {(trap.deltaWinRate * 100).toFixed(1)}%
                       </div>
                       <div className="text-[10px] text-[#94A3B8]">
@@ -312,14 +410,14 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
             <input
               value={augQuery}
               onChange={(e) => setAugQuery(e.target.value)}
-              placeholder="搜海克斯名称或拼音首字母 (如 zghs)"
+              placeholder="搜海克斯名称、效果或拼音首字母 (如 zghs)"
               className="w-full pl-8 pr-3 py-1.5 rounded bg-[#111B2C] border border-[#C8AA6E]/25 text-xs text-[#F0E6D2] placeholder-[#64748B] focus:outline-none focus:border-[#C8AA6E]"
             />
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {filteredAugments.slice(0, 45).map((st) => {
+          {filteredAugments.slice(0, 48).map((st) => {
             const meta = augments[st.augmentId]
             if (!meta) return null
             const isPicked = pickedAugmentIds.includes(st.augmentId)
@@ -395,7 +493,7 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
 
                   {st.boundItems && st.boundItems.length > 0 && (
                     <div className="text-[11px] text-[#E2C992] bg-black/25 px-2 py-1 rounded">
-                      最佳首件绑定：
+                      变阵首件推荐：
                       {st.boundItems
                         .slice(0, 2)
                         .map((bi) => `${bi.name}(${(bi.winRate * 100).toFixed(0)}%)`)
@@ -405,9 +503,15 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                 </div>
 
                 <div className="pt-2 border-t border-white/10 flex items-center justify-between text-[11px]">
-                  <span className="text-[#94A3B8] tabular-nums">
-                    样本 {st.games.toLocaleString()} 局{st.lowSample ? ' (小样本已平滑)' : ''}
-                  </span>
+                  <button
+                    onClick={() => onOpenInAugmentDex(st.augmentId)}
+                    title="在海克斯百科中查看最契合该符文的天选英雄"
+                    className="text-[#94A3B8] hover:text-[#E2C992] inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <BookMarked className="w-3 h-3" />
+                    <span className="tabular-nums">{st.games.toLocaleString()}局 · 适配榜</span>
+                  </button>
+
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => onAddCandidateAugment(st.augmentId)}
@@ -418,7 +522,7 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                       }`}
                     >
                       <Scale className="w-3 h-3" />
-                      <span>{inCompare ? '已在对比' : '进三选一'}</span>
+                      <span>{inCompare ? '对比中' : '进三选一'}</span>
                     </button>
                     <button
                       onClick={() => onTogglePickAugment(st.augmentId)}
@@ -429,7 +533,7 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                       }`}
                     >
                       {isPicked ? <Check className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
-                      <span>{isPicked ? '本局已拿' : '记为已拿'}</span>
+                      <span>{isPicked ? '已拿' : '记已拿'}</span>
                     </button>
                   </div>
                 </div>

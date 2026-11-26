@@ -7,6 +7,7 @@ export interface LiveMatchSnapshot {
   allyHeroIds: string[]
   enemyHeroIds: string[]
   currentLevel: number
+  isDead: boolean
   isAugmentMilestone: boolean
   currentItemIds: string[]
 }
@@ -143,6 +144,7 @@ export class ReadOnlyLiveWatcher {
     }
 
     const level = active?.level ?? 3
+    const isDead = Boolean(mePlayer?.isDead)
     const currentItemIds = (mePlayer?.items || [])
       .map((it) => String(it.itemID))
       .filter((id) => id !== '0')
@@ -153,7 +155,8 @@ export class ReadOnlyLiveWatcher {
       allyHeroIds,
       enemyHeroIds,
       currentLevel: level,
-      isAugmentMilestone: AUGMENT_LEVELS.has(level) || Boolean(mePlayer?.isDead && level >= 7),
+      isDead,
+      isAugmentMilestone: AUGMENT_LEVELS.has(level) || (isDead && level >= 7),
       currentItemIds
     })
   }

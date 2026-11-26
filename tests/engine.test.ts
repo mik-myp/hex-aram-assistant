@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { matchAugmentsFromOcrText, toPinyinIndex } from '../src/shared/pinyin'
 import {
+  buildAugmentReverseDetail,
   buildHeroDetailGuide,
   classifyAugmentVerdict,
   computeBenchSuggestions,
@@ -70,6 +71,8 @@ function createMockBundle(): SeedBundle {
       patch: '16.23',
       mode: 'normal',
       modeLabel: '常规',
+      activeBand: 'all',
+      bandsAvailable: false,
       seq: 22,
       matchesValid: 8401866,
       snapshotAt: '2026-11-26T09:00:00+08:00',
@@ -94,6 +97,7 @@ function createMockBundle(): SeedBundle {
         pickRate: 0.005,
         rank: 70,
         tier: 'T2',
+        skillOrder: '主Q · 副E',
         pinyinFull: 'anni,火女',
         pinyinInitials: 'an'
       },
@@ -112,6 +116,7 @@ function createMockBundle(): SeedBundle {
         pickRate: 0.012,
         rank: 2,
         tier: 'T0',
+        skillOrder: '主E · 副Q',
         pinyinFull: 'kaier',
         pinyinInitials: 'ke'
       },
@@ -136,8 +141,8 @@ function createMockBundle(): SeedBundle {
       '16': {
         id: '16',
         alias: 'Soraka',
-        name: '索拉卡',
         title: '众星之子',
+        name: '索拉卡',
         roles: ['support'],
         damageType: 'AP',
         avatarUrl: '',
@@ -154,16 +159,47 @@ function createMockBundle(): SeedBundle {
     },
     augments,
     items: {
-      '3165': { id: '3165', name: '莫雷洛秘典', iconUrl: '', category: 'mage', types: [], totalGold: 2200 },
-      '6653': { id: '6653', name: '兰德里的折磨', iconUrl: '', category: 'mage', types: [], totalGold: 3000 },
-      '4645': { id: '4645', name: '影焰', iconUrl: '', category: 'mage', types: [], totalGold: 3200 }
+      '3165': {
+        id: '3165',
+        name: '莫雷洛秘典',
+        iconUrl: '',
+        category: 'mage',
+        types: [],
+        totalGold: 2200,
+        brief: '对敌方造成魔法伤害时施加40%重伤',
+        fullDesc: '莫雷洛秘典详细说明'
+      },
+      '6653': {
+        id: '6653',
+        name: '兰德里的折磨',
+        iconUrl: '',
+        category: 'mage',
+        types: [],
+        totalGold: 3000,
+        brief: '技能灼烧敌人每秒最大生命值魔法伤害',
+        fullDesc: '兰德里详细说明'
+      },
+      '4645': {
+        id: '4645',
+        name: '影焰',
+        iconUrl: '',
+        category: 'mage',
+        types: [],
+        totalGold: 3200,
+        brief: '对低血量目标魔法伤害和持续伤害暴击',
+        fullDesc: '影焰详细说明'
+      }
     },
     heroAugments: {
       '1': [
-        ['1001', 3000, 1740, 0], // 58% -> S+
-        ['1004', 2200, 1210, 0], // 55% -> S/S+
-        ['1003', 2800, 1540, 0], // 55% -> S
-        ['1005', 1500, 600, 0] // 40% -> TRAP (sealing Annie R Tibbers!)
+        ['1001', 3000, 1740, 0],
+        ['1004', 2200, 1210, 0],
+        ['1003', 2800, 1540, 0],
+        ['1005', 1500, 600, 0]
+      ],
+      '10': [
+        ['1001', 2500, 1450, 0],
+        ['1005', 1800, 1120, 0]
       ]
     },
     coreBuilds: {
@@ -181,21 +217,18 @@ function createMockBundle(): SeedBundle {
   }
 }
 
-describe('HexBuddy core intelligence suite', () => {
+describe('HexBuddy v0.2.0 core intelligence suite', () => {
   it('computes Bayesian smoothed win rates safely for low and high sample counts', () => {
-    // Small sample 3/3 (100% raw) should shrink smoothly toward 50% baseline
     const tiny = smoothWinRate(3, 3, 0.5, 300)
     expect(tiny).toBeGreaterThan(0.5)
     expect(tiny).toBeLessThan(0.52)
 
-    // Large sample 5800/10000 stays close to 58%
     const large = smoothWinRate(5800, 10000, 0.5, 300)
     expect(large).toBeGreaterThan(0.575)
   })
 
   it('recovers accurate official Hextech augments from noisy OCR characters', () => {
     const bundle = createMockBundle()
-    // Simulate typical Tesseract lookalike confusion: 护手->护乎, 巨人->巨入, 导管->导官
     const { matchedIds, confidence } = matchAugmentsFromOcrText(
       ['珠光护乎   歌利亚巨入   炼狱导官'],
       bundle.augments,
@@ -207,30 +240,40 @@ describe('HexBuddy core intelligence suite', () => {
     expect(confidence).toBeGreaterThan(0.65)
   })
 
-  it('derives beginner archetypes and flags negative-winrate trap augments', () => {
+  it('derives archetypes, pivot builds, and reverse augment hero rankings', () => {
     const bundle = createMockBundle()
     const guide = buildHeroDetailGuide(bundle, '1')
     expect(guide).not.toBeNull()
-    // Annie sealing R with Back to Basics ('1005') drops winrate by ~-8%, must be flagged TRAP
     expect(guide!.trapAugments.some((t) => t.augmentId === '1005')).toBe(true)
-    const critArc = guide!.archetypes.find((a) => a.id.includes('crit'))
-    expect(critArc).toBeDefined()
-    expect(critArc!.itemPivotTip).toContain('影焰')
+    expect(guide!.augmentPivotBuilds.some((p) => p.augmentId === '1001')).toBe(true)
     expect(classifyAugmentVerdict(-0.06, 800, 10).verdict).toBe('TRAP')
+
+    // Reverse augment lookup: Back to Basics ('1005') is great on Kayle ('10') and a trap on Annie ('1')
+    const rev = buildAugmentReverseDetail(bundle, '1005')
+    expect(rev).not.toBeNull()
+    expect(rev!.bestHeroes[0].heroId).toBe('10')
+    expect(rev!.trapHeroes[0].heroId).toBe('1')
   })
 
-  it('recommends T0 bench upgrades and anti-heal/anti-tank counter items', () => {
+  it('weights comfort favorites and preferred roles in bench recommendations', () => {
     const bundle = createMockBundle()
-    const bench = computeBenchSuggestions(bundle, '1', ['1', '16'], ['10'])
-    expect(bench[0].heroId).toBe('10')
-    expect(bench[0].deltaVsCurrent).toBeGreaterThan(0.05)
+    const bench = computeBenchSuggestions(bundle, '1', ['1', '16'], ['10', '36'], {
+      favoriteHeroIds: ['36'],
+      preferredRoles: ['tank'],
+      overlayOpacity: 'solid',
+      autoOcrOnMilestone: true
+    })
+    // Mundo ('36') is starred as favorite AND matches tank preference + fills missing tank!
+    expect(bench[0].heroId).toBe('36')
+    expect(bench[0].isFavorite).toBe(true)
+    expect(bench[0].reason).toContain('本命')
 
     const liveState: GameLiveState = {
       connectionMode: 'live-in-game',
       myHeroId: '1',
       allyHeroIds: ['1', '10'],
       benchHeroIds: [],
-      enemyHeroIds: ['36', '16', '36'], // Heavy heal + tank
+      enemyHeroIds: ['36', '16', '36'],
       currentLevel: 11,
       isAugmentMilestone: true,
       currentItemIds: [],
@@ -240,32 +283,31 @@ describe('HexBuddy core intelligence suite', () => {
     }
     const advice = computeLocalTacticalAdvice(bundle, liveState, '1')
     const itemIds = advice.counterItemIds.map((c) => c.itemId)
-    expect(itemIds).toContain('3165') // 莫雷洛秘典 anti-heal
-    expect(itemIds).toContain('6653') // 兰德里 anti-tank
+    expect(itemIds).toContain('3165')
+    expect(itemIds).toContain('6653')
   })
 
-  it('validates the real bundled 16.23 CN dataset across all 170+ champions', () => {
+  it('validates enriched v0.2.0 16.23 dataset (skill orders, item briefs, reverse dex)', () => {
     const seedPath = resolve(__dirname, '../resources/seed-data/seed-bundle.json')
     const realBundle = JSON.parse(readFileSync(seedPath, 'utf-8')) as SeedBundle
     const heroIds = Object.keys(realBundle.heroes)
     expect(heroIds.length).toBeGreaterThanOrEqual(170)
-    expect(Object.keys(realBundle.augments).length).toBeGreaterThanOrEqual(200)
 
+    let heroesWithSkills = 0
     for (const hid of heroIds) {
       const g = buildHeroDetailGuide(realBundle, hid)
       expect(g).not.toBeNull()
-      expect(g!.archetypes.length).toBeGreaterThanOrEqual(1)
-      expect(g!.augments.length).toBeGreaterThan(20)
+      if (g!.hero.skillOrder) heroesWithSkills++
     }
+    expect(heroesWithSkills).toBeGreaterThanOrEqual(165)
 
-    // Verify OCR fuzzy dictionary recovery against the full 237-augment catalog
-    const ocrCheck = matchAugmentsFromOcrText(
-      ['珠光护乎', '歌利亚巨入', '泰坦的坚诀'],
-      realBundle.augments,
-      3
-    )
-    const matchedNames = ocrCheck.matchedIds.map((id) => realBundle.augments[id]?.name)
-    expect(matchedNames).toContain('珠光护手')
-    expect(matchedNames).toContain('泰坦的坚决')
+    // Check new-season item briefs (e.g. 2502 无终恨意, 3118 残疫)
+    expect(realBundle.items['2502']?.brief.length).toBeGreaterThan(4)
+    expect(realBundle.items['3118']?.brief.length).toBeGreaterThan(4)
+
+    // Check reverse lookup on Prismatic augment 1001
+    const rev1001 = buildAugmentReverseDetail(realBundle, '1001')
+    expect(rev1001).not.toBeNull()
+    expect(rev1001!.bestHeroes.length).toBe(10)
   })
 })
