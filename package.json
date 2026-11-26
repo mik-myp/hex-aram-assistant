@@ -1,0 +1,73 @@
+{
+  "name": "hex-aram-assistant",
+  "version": "0.1.0",
+  "description": "HexBuddy (海斗军师) — 英雄联盟端游海克斯大乱斗新手桌面助手（100% 纯只读安全模式）",
+  "main": "./out/main/index.js",
+  "author": "mik-myp",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node scripts/ensure-electron.mjs",
+    "fetch-seed": "node scripts/fetch-seed-data.mjs",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "pack:mac": "electron-vite build && electron-builder --mac --dir",
+    "dist:win": "electron-vite build && electron-builder --win",
+    "dist:mac": "electron-vite build && electron-builder --mac"
+  },
+  "dependencies": {
+    "lucide-react": "^0.511.0",
+    "pinyin-pro": "^3.26.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tesseract.js": "^6.0.1",
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.7",
+    "@types/node": "^22.15.21",
+    "@types/react": "^19.1.5",
+    "@types/react-dom": "^19.1.5",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.5.0",
+    "electron": "^36.3.2",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^3.1.0",
+    "tailwindcss": "^4.1.7",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  },
+  "build": {
+    "appId": "com.mikmyp.hexbuddy",
+    "productName": "HexBuddy",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/seed-data",
+        "to": "seed-data"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.games",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    }
+  }
+}

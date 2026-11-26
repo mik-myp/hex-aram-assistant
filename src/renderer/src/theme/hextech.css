@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+:root {
+  --abyss-950: #070b12;
+  --abyss-900: #0c1320;
+  --abyss-850: #111b2c;
+  --abyss-800: #162236;
+  --brass-500: #a68542;
+  --brass-400: #c8aa6e;
+  --brass-300: #e2c992;
+  --parchment-100: #f0e6d2;
+  --parchment-300: #c8c1b2;
+  --hextech-cyan: #0ac8b9;
+  --trap-crimson: #e11d48;
+}
+
+body {
+  background-color: var(--abyss-950);
+  color: var(--parchment-100);
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+.font-runeterra {
+  font-family: "Cinzel", "Songti SC", "Noto Serif SC", Georgia, serif;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Drag region for macOS hiddenInset & frameless mini overlay */
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Custom subtle scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(12, 19, 32, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(200, 170, 110, 0.28);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(200, 170, 110, 0.5);
+}
+
+/* Authentic Augment Rarity Frames — Spending visual boldness intentionally here */
+.rarity-frame-prismatic {
+  border: 1px solid rgba(183, 148, 244, 0.65);
+  background:
+    linear-gradient(135deg, rgba(99, 245, 239, 0.09) 0%, rgba(183, 148, 244, 0.12) 50%, rgba(246, 135, 179, 0.09) 100%),
+    #0d1524;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 18px rgba(168, 85, 247, 0.12);
+}
+
+.rarity-frame-gold {
+  border: 1px solid rgba(212, 175, 55, 0.58);
+  background:
+    linear-gradient(135deg, rgba(212, 175, 55, 0.11) 0%, rgba(16, 24, 39, 0.96) 68%),
+    #0d1420;
+  box-shadow: inset 0 1px 0 rgba(240, 230, 210, 0.08);
+}
+
+.rarity-frame-silver {
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background:
+    linear-gradient(135deg, rgba(203, 213, 225, 0.08) 0%, rgba(13, 20, 32, 0.96) 68%),
+    #0c1320;
+}
+
+.hex-panel {
+  background-color: var(--abyss-900);
+  border: 1px solid rgba(200, 170, 110, 0.22);
+}
+
+.hex-panel-subtle {
+  background-color: rgba(17, 27, 44, 0.72);
+  border: 1px solid rgba(200, 170, 110, 0.14);
+}
