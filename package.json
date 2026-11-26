@@ -5,6 +5,7 @@
   "main": "./out/main/index.js",
   "author": "mik-myp",
   "license": "MIT",
+  "packageManager": "pnpm@11.15.1",
   "scripts": {
     "postinstall": "node scripts/ensure-electron.mjs",
     "fetch-seed": "node scripts/fetch-seed-data.mjs",
@@ -43,6 +44,7 @@
   "build": {
     "appId": "com.mikmyp.hexbuddy",
     "productName": "HexBuddy",
+    "icon": "resources/icon.png",
     "directories": {
       "output": "release"
     },
@@ -56,18 +58,23 @@
         "to": "seed-data"
       }
     ],
-    "mac": {
-      "category": "public.app-category.games",
-      "target": [
-        "dmg",
-        "zip"
-      ]
-    },
     "win": {
+      "icon": "resources/icon.png",
       "target": [
         "nsis",
         "portable"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "HexBuddy 海斗军师",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
     }
   }
 }
