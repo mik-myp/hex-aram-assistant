@@ -1,3 +1,4 @@
+import { buildResolutionAwareCardSlots } from '@shared/layoutGeometry'
 import type { CardSlotAnchor, GameLiveState, PlaystyleMode, SeedBundle } from '@shared/types'
 
 function findAugmentIdsByNames(bundle: SeedBundle, preferredNames: string[], count = 3): string[] {
@@ -15,14 +16,8 @@ function findAugmentIdsByNames(bundle: SeedBundle, preferredNames: string[], cou
   return found
 }
 
-export function makeDefaultCardSlots(ids: string[]): CardSlotAnchor[] {
-  const xs: [number, number, number] = [0.285, 0.5, 0.715]
-  return ids.slice(0, 3).map((augmentId, idx) => ({
-    slotIndex: idx as 0 | 1 | 2,
-    augmentId,
-    xRatio: xs[idx] ?? 0.5,
-    yRatio: 0.24
-  }))
+export function makeDefaultCardSlots(ids: string[], gameW = 1920, gameH = 1080): CardSlotAnchor[] {
+  return buildResolutionAwareCardSlots(ids, gameW, gameH)
 }
 
 export function createSimulatorScene(

@@ -61,6 +61,7 @@ export interface HexBuddyApi {
     pickedAugmentIds?: string[]
     candidateAugmentIds?: string[]
     myHeroId?: string | null
+    benchHeroIds?: string[]
   }) => Promise<GameLiveState>
   captureScreenOcr: () => Promise<OcrRecognizeResult>
   recognizeImageOcr: (imageDataUrl: string) => Promise<OcrRecognizeResult>

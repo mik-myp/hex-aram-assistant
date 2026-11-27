@@ -69,7 +69,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [form, setForm] = useState<AiSettings>({ ...settings })
   const [autoOcr, setAutoOcr] = useState<boolean>(prefs.autoOcrOnMilestone)
   const [minimizeToTray, setMinimizeToTray] = useState<boolean>(prefs.minimizeToTray)
+  const [autoHideUnfocused, setAutoHideUnfocused] = useState<boolean>(
+    prefs.autoHideWhenUnfocused ?? true
+  )
   const [badgePosition, setBadgePosition] = useState<'top' | 'bottom'>(prefs.badgePosition || 'top')
+  const [hudOffsetX, setHudOffsetX] = useState<number>(prefs.hudOffsetX ?? 0)
+  const [hudOffsetY, setHudOffsetY] = useState<number>(prefs.hudOffsetY ?? 0)
   const [preferredRoles, setPreferredRoles] = useState<HeroRole[]>(prefs.preferredRoles || [])
   const [saved, setSaved] = useState(false)
 
@@ -86,7 +91,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     await onSave(form, {
       autoOcrOnMilestone: autoOcr,
       minimizeToTray,
+      autoHideWhenUnfocused: autoHideUnfocused,
       badgePosition,
+      hudOffsetX,
+      hudOffsetY,
       preferredRoles
     })
     setSaved(true)
@@ -140,6 +148,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <p className="text-[#94A3B8] mt-0.5">存活打架 0 截屏；选卡时自动贴标并自动记槽</p>
                 </div>
               </label>
+
+              <label className="flex items-start gap-2 p-2.5 rounded bg-[#111B2C] border border-[#C8AA6E]/20 cursor-pointer md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={autoHideUnfocused}
+                  onChange={(e) => setAutoHideUnfocused(e.target.checked)}
+                  className="mt-0.5 accent-[#0AC8B9]"
+                />
+                <div>
+                  <div className="font-semibold text-[#F0E6D2]">
+                    切出游戏 (Alt+Tab) 时自动隐藏 HUD，切回自动恢复
+                  </div>
+                  <p className="text-[#94A3B8] mt-0.5">
+                    自动追踪英雄联盟客户区真实像素（支持无边框/窗口化、100%~200% DPI 缩放、16:9 / 16:10 / 21:9 带鱼屏；若设为传统独占全屏请改为无边框）
+                  </p>
+                </div>
+              </label>
             </div>
 
             <div className="flex items-center justify-between p-2.5 rounded bg-[#111B2C] border border-[#C8AA6E]/20 text-xs">
@@ -164,6 +189,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     {pos.label}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded bg-[#111B2C] border border-[#C8AA6E]/20 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[#C8C1B2]">
+                  原位坐标偏移微调（横向 {hudOffsetX >= 0 ? `+${hudOffsetX}` : hudOffsetX}% · 纵向{' '}
+                  {hudOffsetY >= 0 ? `+${hudOffsetY}` : hudOffsetY}%）
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHudOffsetX(0)
+                    setHudOffsetY(0)
+                  }}
+                  className="px-2 py-0.5 rounded bg-[#0B1220] text-[#E2C992] hover:bg-white/10 cursor-pointer"
+                >
+                  重置归零
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex items-center gap-2">
+                  <span className="text-[#94A3B8] shrink-0">横向 X</span>
+                  <input
+                    type="range"
+                    min={-8}
+                    max={8}
+                    step={0.5}
+                    value={hudOffsetX}
+                    onChange={(e) => setHudOffsetX(Number(e.target.value))}
+                    className="w-full accent-[#0AC8B9]"
+                  />
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="text-[#94A3B8] shrink-0">纵向 Y</span>
+                  <input
+                    type="range"
+                    min={-8}
+                    max={8}
+                    step={0.5}
+                    value={hudOffsetY}
+                    onChange={(e) => setHudOffsetY(Number(e.target.value))}
+                    className="w-full accent-[#0AC8B9]"
+                  />
+                </label>
               </div>
             </div>
           </section>

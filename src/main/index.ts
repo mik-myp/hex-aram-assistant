@@ -21,14 +21,25 @@ import {
 import { ReadOnlyLcuWatcher, type LcuChampSelectSnapshot } from './game/lcuWatcher'
 import { ReadOnlyLiveWatcher, type LiveMatchSnapshot } from './game/liveWatcher'
 import { createSimulatorScene, makeDefaultCardSlots } from './game/mockSimulator'
-import { findActiveLeagueWindowBounds } from './game/windowTracker'
+import {
+  getActiveLeagueWindow,
+  startLeagueWindowTracker,
+  stopLeagueWindowTracker
+} from './game/windowTracker'
 import {
   captureScreenAndRecognizeAugments,
   recognizeAugmentsFromDataUrl,
   terminateOcrWorker
 } from './ocr/augmentOcr'
 import { askCustomLlmAdvisor, computeLocalTacticalAdvice } from './ai/advisorService'
-import type { AiSettings, GameLiveState, PlaystyleMode, UserPreferences } from '@shared/types'
+import { resolveHoveredAugmentSlot } from '@shared/layoutGeometry'
+import type {
+  AiSettings,
+  GameLiveState,
+  PlaystyleMode,
+  UserPreferences,
+  WindowBoundsRect
+} from '@shared/types'
 
 const DEFAULT_SETTINGS: AiSettings = {
   enabled: true,
@@ -46,7 +57,10 @@ const DEFAULT_PREFS: UserPreferences = {
   overlayOpacity: 'solid',
   autoOcrOnMilestone: true,
   minimizeToTray: true,
-  badgePosition: 'top'
+  badgePosition: 'top',
+  autoHideWhenUnfocused: true,
+  hudOffsetX: 0,
+  hudOffsetY: 0
 }
 
 const syncService = new DataSyncService()
@@ -70,6 +84,8 @@ let ocrBusy = false
 let lastOcrScanAt = 0
 let emptyOfferScans = 0
 let lastHoveredCardSlot: 0 | 1 | 2 = 1
+let manuallyHiddenHud = false
+let lastTrackedDipBounds: WindowBoundsRect | undefined = undefined
 
 let gameState: GameLiveState = {
   connectionMode: 'disconnected',
@@ -167,36 +183,98 @@ function currentActiveMilestone(level: number): number {
 }
 
 /**
- * Handles both:
- * 1) Initial 3-pick detection at Lv3/7/11/15 fountain window
- * 2) Live Reroll rescan while 3 cards are open on screen + Cursor-position auto-recording when closed!
+ * Converts physical Win32 client bounds to Electron logical DIP bounds (handling 100%-225% DPI scaling
+ * and multi-monitor mixed DPI) and applies a 1px bottom inset on borderless fullscreen to prevent
+ * Windows DWM DirectFlip black-flicker / FPS drops.
  */
-async function tickSpatialVisionAndCursor(): Promise<void> {
-  // Align HUD window to active League window on Windows if present
-  if (hudWindow && !hudWindow.isDestroyed() && hudWindow.isVisible() && !simulatorActive) {
-    const tracked = await findActiveLeagueWindowBounds()
-    if (tracked) {
-      const cur = hudWindow.getBounds()
-      if (
-        Math.abs(cur.x - tracked.bounds.x) > 2 ||
-        Math.abs(cur.y - tracked.bounds.y) > 2 ||
-        Math.abs(cur.width - tracked.bounds.width) > 2 ||
-        Math.abs(cur.height - tracked.bounds.height) > 2
-      ) {
-        hudWindow.setBounds(tracked.bounds, false)
-      }
+function syncHudBoundsToLeagueWindow(): void {
+  if (!hudWindow || hudWindow.isDestroyed() || simulatorActive) return
+  const tracked = getActiveLeagueWindow()
+  if (!tracked) {
+    lastTrackedDipBounds = undefined
+    return
+  }
+
+  // Handle Alt+Tab foreground auto-hide so HUD never floats over Chrome / WeChat
+  if (currentPrefs.autoHideWhenUnfocused && !manuallyHiddenHud) {
+    if (!tracked.isForeground && hudWindow.isVisible()) {
+      hudWindow.hide()
+      return
+    }
+    if (
+      tracked.isForeground &&
+      !hudWindow.isVisible() &&
+      (latestLive?.inGame || latestLcu?.inChampSelect)
+    ) {
+      hudWindow.showInactive()
     }
   }
 
+  const dipRect =
+    process.platform === 'win32'
+      ? screen.screenToDipRect(hudWindow, tracked.physicalBounds)
+      : tracked.physicalBounds
+
+  const disp = screen.getDisplayMatching(dipRect).bounds
+  const coversFullMonitor =
+    dipRect.x <= disp.x + 1 &&
+    dipRect.y <= disp.y + 1 &&
+    Math.abs(dipRect.width - disp.width) <= 2 &&
+    Math.abs(dipRect.height - disp.height) <= 2
+
+  // 1px height guard prevents DWM fullscreen swapchain interference while keeping <0.09% sub-pixel precision
+  const safeBounds: WindowBoundsRect = {
+    x: dipRect.x,
+    y: dipRect.y,
+    width: dipRect.width,
+    height: coversFullMonitor ? Math.max(360, dipRect.height - 1) : dipRect.height
+  }
+  lastTrackedDipBounds = dipRect
+
+  const cur = hudWindow.getBounds()
+  const changed =
+    Math.abs(cur.x - safeBounds.x) > 1 ||
+    Math.abs(cur.y - safeBounds.y) > 1 ||
+    Math.abs(cur.width - safeBounds.width) > 1 ||
+    Math.abs(cur.height - safeBounds.height) > 1
+
+  if (changed) {
+    hudWindow.setBounds(safeBounds, false)
+  }
+
+  if (
+    gameState.targetWindowKind !== tracked.kind ||
+    !gameState.targetBounds ||
+    Math.abs(gameState.targetBounds.width - dipRect.width) > 1 ||
+    Math.abs(gameState.targetBounds.height - dipRect.height) > 1
+  ) {
+    gameState = {
+      ...gameState,
+      targetBounds: dipRect,
+      targetWindowKind: tracked.kind
+    }
+    broadcastGameState()
+  }
+}
+
+/**
+ * Handles both:
+ * 1) Zero-overhead Win32 client-area & DPI bounds alignment + Alt-Tab focus sync
+ * 2) Initial 3-pick detection at Lv3/7/11/15 fountain window
+ * 3) Live Reroll rescan while 3 cards are open on screen + Aspect-ratio aware cursor-column auto-recording!
+ */
+async function tickSpatialVisionAndCursor(): Promise<void> {
+  syncHudBoundsToLeagueWindow()
+
   // Track which card column (0=Left, 1=Center, 2=Right) cursor is hovering over while 3-pick is open
+  // Uses height-scaled center distance so 21:9 & 32:9 ultrawide monitors resolve the exact card!
   if (gameState.cardSlots.length > 0 && hudWindow && !hudWindow.isDestroyed()) {
     const pt = screen.getCursorScreenPoint()
     const b = hudWindow.getBounds()
     if (pt.x >= b.x && pt.x <= b.x + b.width && pt.y >= b.y && pt.y <= b.y + b.height) {
-      const rx = (pt.x - b.x) / Math.max(1, b.width)
-      const ry = (pt.y - b.y) / Math.max(1, b.height)
-      if (ry >= 0.2 && ry <= 0.82) {
-        lastHoveredCardSlot = rx < 0.39 ? 0 : rx > 0.61 ? 2 : 1
+      const slot = resolveHoveredAugmentSlot(pt.x - b.x, pt.y - b.y, b.width, b.height)
+      if (slot !== null) {
+        lastHoveredCardSlot = slot
       }
     }
   }
@@ -209,13 +287,13 @@ async function tickSpatialVisionAndCursor(): Promise<void> {
   const offerCurrentlyOpen = gameState.cardSlots.length > 0
 
   if (offerCurrentlyOpen) {
-    // Low-overhead rescan every 1200ms while offer is visible to catch in-game Rerolls & card closure!
+    // Low-overhead narrow title-strip rescan every 1200ms while offer is visible (zero HUD self-reading!)
     if (Date.now() - lastOcrScanAt < 1200) return
     ocrBusy = true
     lastOcrScanAt = Date.now()
     try {
       const bundle = syncService.getBundle()
-      const res = await captureScreenAndRecognizeAugments(bundle.augments)
+      const res = await captureScreenAndRecognizeAugments(bundle.augments, lastTrackedDipBounds)
       if (res.matchedAugmentIds.length >= 2) {
         emptyOfferScans = 0
         const prevKey = gameState.cardSlots.map((c) => c.augmentId).join(',')
@@ -270,9 +348,10 @@ async function tickSpatialVisionAndCursor(): Promise<void> {
   milestoneAttempts.set(m, tries + 1)
   try {
     const bundle = syncService.getBundle()
-    const res = await captureScreenAndRecognizeAugments(bundle.augments)
+    const res = await captureScreenAndRecognizeAugments(bundle.augments, lastTrackedDipBounds)
     if (res.matchedAugmentIds.length >= 2) {
       emptyOfferScans = 0
+      manuallyHiddenHud = false
       toggleSpatialHud(true)
       gameState = {
         ...gameState,
@@ -434,25 +513,30 @@ function createSystemTray(): void {
   }
 }
 
-function toggleSpatialHud(forceShow?: boolean): boolean {
+function toggleSpatialHud(forceShow?: boolean, userInitiated = false): boolean {
   if (hudWindow && !hudWindow.isDestroyed()) {
     if (forceShow === true) {
+      if (userInitiated) manuallyHiddenHud = false
       hudWindow.showInactive()
       return true
     }
     if (forceShow === false) {
+      if (userInitiated) manuallyHiddenHud = true
       hudWindow.hide()
       return false
     }
     if (hudWindow.isVisible()) {
+      manuallyHiddenHud = true
       hudWindow.hide()
       return false
     }
+    manuallyHiddenHud = false
     hudWindow.showInactive()
     return true
   }
 
   if (forceShow === false) return false
+  manuallyHiddenHud = false
 
   const display = screen.getPrimaryDisplay()
   const bounds = display.bounds
@@ -461,7 +545,7 @@ function toggleSpatialHud(forceShow?: boolean): boolean {
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
-    height: bounds.height,
+    height: Math.max(360, bounds.height - 1),
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -494,9 +578,9 @@ function toggleSpatialHud(forceShow?: boolean): boolean {
 }
 
 async function triggerManualHudOcr(): Promise<void> {
-  toggleSpatialHud(true)
+  toggleSpatialHud(true, true)
   const bundle = syncService.getBundle()
-  const result = await captureScreenAndRecognizeAugments(bundle.augments)
+  const result = await captureScreenAndRecognizeAugments(bundle.augments, lastTrackedDipBounds)
   if (result.matchedAugmentIds.length > 0) {
     emptyOfferScans = 0
     gameState = {
@@ -593,7 +677,16 @@ function setupIpcHandlers(): void {
         return gameState
       }
       simulatorActive = true
-      toggleSpatialHud(true)
+      manuallyHiddenHud = false
+      // Ensure HUD fills primary display cleanly during desktop simulator calibration
+      toggleSpatialHud(true, true)
+      if (hudWindow && !hudWindow.isDestroyed()) {
+        const b = screen.getPrimaryDisplay().bounds
+        hudWindow.setBounds(
+          { x: b.x, y: b.y, width: b.width, height: Math.max(360, b.height - 1) },
+          false
+        )
+      }
       gameState = createSimulatorScene(scene, syncService.getBundle(), gameState.playstyleMode)
       broadcastGameState()
       return gameState
@@ -632,21 +725,27 @@ function setupIpcHandlers(): void {
         pickedAugmentIds?: string[]
         candidateAugmentIds?: string[]
         myHeroId?: string | null
+        benchHeroIds?: string[]
       }
     ) => {
       const nextCands =
         payload.candidateAugmentIds !== undefined
           ? payload.candidateAugmentIds.slice(0, 3)
           : gameState.candidateAugmentIds
+      const w = lastTrackedDipBounds?.width || 1920
+      const h = lastTrackedDipBounds?.height || 1080
       gameState = {
         ...gameState,
         ...(payload.pickedAugmentIds !== undefined
           ? { pickedAugmentIds: payload.pickedAugmentIds.slice(0, 4) }
           : {}),
+        ...(payload.benchHeroIds !== undefined
+          ? { benchHeroIds: payload.benchHeroIds.slice(0, 10) }
+          : {}),
         candidateAugmentIds: nextCands,
         cardSlots:
           payload.candidateAugmentIds !== undefined
-            ? makeDefaultCardSlots(nextCands)
+            ? makeDefaultCardSlots(nextCands, w, h)
             : gameState.cardSlots,
         ...(payload.myHeroId !== undefined ? { myHeroId: payload.myHeroId } : {})
       }
@@ -657,7 +756,7 @@ function setupIpcHandlers(): void {
 
   ipcMain.handle('ocr:capture-screen', async () => {
     const bundle = syncService.getBundle()
-    const res = await captureScreenAndRecognizeAugments(bundle.augments)
+    const res = await captureScreenAndRecognizeAugments(bundle.augments, lastTrackedDipBounds)
     if (res.matchedAugmentIds.length > 0) {
       gameState = {
         ...gameState,
@@ -706,7 +805,7 @@ function setupIpcHandlers(): void {
   })
 
   ipcMain.handle('window:toggle-mini', (_, forceShow?: boolean) => {
-    return toggleSpatialHud(forceShow)
+    return toggleSpatialHud(forceShow, true)
   })
 
   ipcMain.handle('window:show-main', () => {
@@ -745,6 +844,7 @@ app.whenReady().then(async () => {
       recomputeRealGameState()
     }
   )
+  startLeagueWindowTracker()
   lcuWatcher.start()
   liveWatcher.start()
 
@@ -773,6 +873,7 @@ app.on('window-all-closed', () => {
 app.on('will-quit', async () => {
   globalShortcut.unregisterAll()
   if (hudLoopTimer) clearInterval(hudLoopTimer)
+  stopLeagueWindowTracker()
   lcuWatcher?.stop()
   liveWatcher?.stop()
   tray?.destroy()

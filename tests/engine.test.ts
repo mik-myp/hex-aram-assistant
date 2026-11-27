@@ -1,6 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import {
+  CLIENT_BENCH_MAX_SLOTS,
+  computeClientBenchSlotLayout,
+  computeGameAugmentCardBoxes,
+  computeOcrTitleStripCropRect,
+  resolveClientEffectiveRect,
+  resolveHoveredAugmentSlot
+} from '../src/shared/layoutGeometry'
 import { matchAugmentsFromOcrText, toPinyinIndex } from '../src/shared/pinyin'
 import {
   buildAugmentReverseDetail,
@@ -290,7 +298,10 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
       overlayOpacity: 'solid',
       autoOcrOnMilestone: true,
       minimizeToTray: true,
-      badgePosition: 'top'
+      badgePosition: 'top',
+      autoHideWhenUnfocused: true,
+      hudOffsetX: 0,
+      hudOffsetY: 0
     })
     expect(bench[0].benchIndex).toBe(0)
     expect(bench[0].heroId).toBe('36')
@@ -308,5 +319,53 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     ).toBe(1)
     expect(buildHeroDetailGuide(realBundle, '1')).not.toBeNull()
     expect(buildAugmentReverseDetail(realBundle, '1001')?.bestHeroes.length).toBe(10)
+  })
+
+  it('aligns 10-slot ARAM bench & 3-pick cards accurately across 720p, 1080p, 16:10, and 21:9 ultrawide', () => {
+    // 1. Verify all 10 ARAM Bench slots never overlap at 1280×720, 1600×900, and 1920×1080
+    for (const [w, h] of [
+      [1280, 720],
+      [1600, 900],
+      [1920, 1080]
+    ] as const) {
+      const slots = Array.from({ length: CLIENT_BENCH_MAX_SLOTS }, (_, i) =>
+        computeClientBenchSlotLayout(w, h, i)
+      )
+      // Slot 0 starts at left-aligned ARAM bench (x ≈ 29.38% of clientW, NOT 50%!)
+      expect(slots[0].centerX / w).toBeCloseTo(564 / 1920, 3)
+      for (let i = 0; i < slots.length - 1; i++) {
+        const rightEdge = slots[i].centerX + slots[i].badgeWidth / 2
+        const nextLeftEdge = slots[i + 1].centerX - slots[i + 1].badgeWidth / 2
+        expect(rightEdge).toBeLessThanOrEqual(nextLeftEdge)
+      }
+    }
+
+    // 2. Verify RCLIENT 16:9 inscribing when fallback runs on 3440×1440 (21:9)
+    const inscribed = resolveClientEffectiveRect(3440, 1440)
+    expect(inscribed.width).toBe(2560)
+    expect(inscribed.x).toBe(440)
+
+    // 3. Verify In-Game 3-Pick cards scale by H around W/2 across 16:9, 16:10, and 21:9
+    const boxes1080 = computeGameAugmentCardBoxes(1920, 1080)
+    expect(boxes1080[0].centerXRatio).toBeCloseTo(0.3078, 3)
+    expect(boxes1080[1].centerXRatio).toBeCloseTo(0.5, 3)
+    expect(boxes1080[2].centerXRatio).toBeCloseTo(0.6922, 3)
+
+    const boxes1610 = computeGameAugmentCardBoxes(2560, 1600)
+    expect(boxes1610[0].centerXRatio).toBeCloseTo((1280 - 0.3417 * 1600) / 2560, 3)
+
+    const boxes219 = computeGameAugmentCardBoxes(3440, 1440)
+    expect(boxes219[0].centerX).toBeCloseTo(1720 - 0.3417 * 1440, 1) // ~1228px (35.7%, NOT 28.5% = 980px!)
+    expect(boxes219[2].centerX).toBeCloseTo(1720 + 0.3417 * 1440, 1) // ~2212px (64.3%)
+
+    // 4. Verify OCR narrow title crop NEVER overlaps top or bottom HUD badges (0% self-reading)
+    const ocrCrop = computeOcrTitleStripCropRect(2560, 1440)
+    expect(boxes219[0].badgeTopModeBottomY).toBeLessThan(ocrCrop.y - 120)
+    expect(boxes219[0].badgeBottomModeTopY).toBeGreaterThan(ocrCrop.y + ocrCrop.height + 120)
+
+    // 5. Verify cursor column tracking on 3440×1440 (21:9) accurately resolves x=1380 (rx=0.401) as Slot 0!
+    expect(resolveHoveredAugmentSlot(1380, 700, 3440, 1440)).toBe(0)
+    expect(resolveHoveredAugmentSlot(1720, 700, 3440, 1440)).toBe(1)
+    expect(resolveHoveredAugmentSlot(2150, 700, 3440, 1440)).toBe(2)
   })
 })

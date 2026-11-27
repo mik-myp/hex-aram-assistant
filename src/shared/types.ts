@@ -174,6 +174,9 @@ export interface UserPreferences {
   autoOcrOnMilestone: boolean
   minimizeToTray: boolean
   badgePosition: 'top' | 'bottom'
+  autoHideWhenUnfocused: boolean
+  hudOffsetX: number
+  hudOffsetY: number
 }
 
 export interface BenchSuggestion {
@@ -204,6 +207,7 @@ export interface CardSlotAnchor {
   augmentId: string
   xRatio: number
   yRatio: number
+  cardWidthRatio?: number
 }
 
 export interface WindowBoundsRect {
@@ -231,6 +235,7 @@ export interface GameLiveState {
   candidateAugmentIds: string[]
   cardSlots: CardSlotAnchor[]
   targetBounds?: WindowBoundsRect
+  targetWindowKind?: 'client' | 'game'
   lastUpdatedAt: number
 }
 
