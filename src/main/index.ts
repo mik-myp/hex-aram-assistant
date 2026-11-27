@@ -429,6 +429,7 @@ function resolveRendererUrl(hash = ''): { isUrl: boolean; target: string } {
 }
 
 function createMainWindow(): void {
+  const isMac = process.platform === 'darwin'
   mainWindow = new BrowserWindow({
     width: 1240,
     height: 820,
@@ -436,8 +437,10 @@ function createMainWindow(): void {
     minHeight: 660,
     backgroundColor: '#070B12',
     icon: resolveIconPath(),
-    title: 'HexBuddy · 海斗攻略图鉴',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
+    title: 'HexBuddy',
+    frame: isMac,
+    titleBarStyle: isMac ? 'hiddenInset' : undefined,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -445,9 +448,20 @@ function createMainWindow(): void {
     }
   })
 
+  if (!isMac) {
+    mainWindow.removeMenu()
+  }
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
+  })
+
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximized-changed', true)
+  })
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:maximized-changed', false)
   })
 
   const r = resolveRendererUrl()
@@ -812,6 +826,24 @@ function setupIpcHandlers(): void {
     showMainWindow()
   })
 
+  ipcMain.handle('window:minimize-main', () => {
+    mainWindow?.minimize()
+  })
+
+  ipcMain.handle('window:toggle-maximize-main', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize()
+      return false
+    }
+    mainWindow.maximize()
+    return true
+  })
+
+  ipcMain.handle('window:close-main', () => {
+    mainWindow?.close()
+  })
+
   ipcMain.handle('window:set-hud-interactive', (_, interactive: boolean) => {
     if (hudWindow && !hudWindow.isDestroyed()) {
       hudWindow.setIgnoreMouseEvents(!interactive, { forward: true })
@@ -826,6 +858,9 @@ function setupIpcHandlers(): void {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+  }
   await loadSettingsAndPrefs()
   await syncService.init()
   setupIpcHandlers()

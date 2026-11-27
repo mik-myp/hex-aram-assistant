@@ -74,11 +74,15 @@ export interface HexBuddyApi {
   savePrefs: (next: Partial<UserPreferences>) => Promise<UserPreferences>
   toggleMiniOverlay: (forceShow?: boolean) => Promise<boolean>
   showMainWindow: () => Promise<void>
+  minimizeMain: () => Promise<void>
+  toggleMaximizeMain: () => Promise<boolean>
+  closeMain: () => Promise<void>
   setHudInteractive: (interactive: boolean) => Promise<void>
   openExternal: (url: string) => Promise<void>
   onGameStateUpdated: (cb: (state: GameLiveState) => void) => () => void
   onOcrResult: (cb: (res: OcrRecognizeResult) => void) => () => void
   onPrefsUpdated: (cb: (prefs: UserPreferences) => void) => () => void
+  onWindowMaximizedChanged: (cb: (maximized: boolean) => void) => () => void
 }
 
 const api: HexBuddyApi = {
@@ -103,6 +107,9 @@ const api: HexBuddyApi = {
   savePrefs: (next) => ipcRenderer.invoke('prefs:save', next),
   toggleMiniOverlay: (forceShow) => ipcRenderer.invoke('window:toggle-mini', forceShow),
   showMainWindow: () => ipcRenderer.invoke('window:show-main'),
+  minimizeMain: () => ipcRenderer.invoke('window:minimize-main'),
+  toggleMaximizeMain: () => ipcRenderer.invoke('window:toggle-maximize-main'),
+  closeMain: () => ipcRenderer.invoke('window:close-main'),
   setHudInteractive: (interactive) => ipcRenderer.invoke('window:set-hud-interactive', interactive),
   openExternal: (url) => ipcRenderer.invoke('window:open-external', url),
   onGameStateUpdated: (cb) => {
@@ -119,6 +126,11 @@ const api: HexBuddyApi = {
     const handler = (_: unknown, prefs: UserPreferences): void => cb(prefs)
     ipcRenderer.on('prefs:updated', handler)
     return () => ipcRenderer.removeListener('prefs:updated', handler)
+  },
+  onWindowMaximizedChanged: (cb) => {
+    const handler = (_: unknown, maximized: boolean): void => cb(maximized)
+    ipcRenderer.on('window:maximized-changed', handler)
+    return () => ipcRenderer.removeListener('window:maximized-changed', handler)
   }
 }
 

@@ -139,8 +139,14 @@ const MainWorkspace: React.FC = () => {
 
   const isHeroFav = selectedHeroId ? prefs.favoriteHeroIds.includes(selectedHeroId) : false
 
+  const isMac = navigator.userAgent.includes('Mac')
+
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#070B12] text-[#F0E6D2] overflow-hidden">
+    <div
+      className={`h-screen w-screen flex flex-col bg-[#070B12] text-[#F0E6D2] overflow-hidden ${
+        !isMac ? 'border border-[#C8AA6E]/22' : ''
+      }`}
+    >
       <SimulatorBar
         gameState={gameState}
         mainView={mainView}
