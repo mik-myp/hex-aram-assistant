@@ -1,17 +1,18 @@
 import { desktopCapturer } from 'electron'
 import { createWorker, type Worker } from 'tesseract.js'
 import { matchAugmentsFromOcrText } from '@shared/pinyin'
-import type { AugmentMeta, OcrRecognizeResult } from '@shared/types'
+import type { AugmentMeta, CardSlotAnchor, OcrRecognizeResult } from '@shared/types'
 
 let ocrWorkerPromise: Promise<Worker> | null = null
+
+const DEFAULT_SLOT_X_RATIOS: [number, number, number] = [0.285, 0.5, 0.715]
+const DEFAULT_SLOT_Y_RATIO = 0.255
 
 async function getOcrWorker(): Promise<Worker> {
   if (!ocrWorkerPromise) {
     ocrWorkerPromise = createWorker('chi_sim', 1, {
       langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/chi_sim/4.0.0_best_int',
-      logger: () => {
-        // quiet worker progress
-      }
+      logger: () => {}
     }).catch((err) => {
       ocrWorkerPromise = null
       throw err
@@ -51,30 +52,90 @@ export async function recognizeAugmentsFromDataUrl(
       .map((s) => s.trim())
       .filter(Boolean)
 
-    // Also split horizontal multi-card single lines by wide spaces
-    const segments: string[] = [...rawLines]
-    for (const line of rawLines) {
-      const parts = line.split(/\s{2,}/).filter((p) => p.trim().length >= 2)
-      if (parts.length > 1) segments.push(...parts)
+    // Try column-based recognition from horizontal text splits first so Left/Center/Right card order is preserved!
+    const columnTexts: [string[], string[], string[]] = [[], [], []]
+    const blocks = (ret.data as unknown as {
+      lines?: Array<{ text: string; bbox?: { x0: number; x1: number; y0: number; y1: number } }>
+    }).lines
+
+    if (Array.isArray(blocks) && blocks.length > 0) {
+      const maxX = Math.max(1000, ...blocks.map((b) => b.bbox?.x1 || 0))
+      for (const ln of blocks) {
+        const parts = ln.text.split(/\s{2,}/).filter((p) => p.trim().length >= 2)
+        if (parts.length === 3) {
+          columnTexts[0].push(parts[0])
+          columnTexts[1].push(parts[1])
+          columnTexts[2].push(parts[2])
+        } else if (ln.bbox) {
+          const cx = (ln.bbox.x0 + ln.bbox.x1) / 2 / maxX
+          const col: 0 | 1 | 2 = cx < 0.36 ? 0 : cx > 0.64 ? 2 : 1
+          columnTexts[col].push(ln.text)
+        }
+      }
     }
 
-    const { matchedIds, confidence } = matchAugmentsFromOcrText(segments, augments, 3)
+    const cardSlots: CardSlotAnchor[] = []
+    const matchedIds: string[] = []
+    let confSum = 0
+
+    for (const colIdx of [0, 1, 2] as const) {
+      if (columnTexts[colIdx].length === 0) continue
+      const colMatch = matchAugmentsFromOcrText(columnTexts[colIdx], augments, 1)
+      const hitId = colMatch.matchedIds[0]
+      if (hitId && !matchedIds.includes(hitId)) {
+        matchedIds.push(hitId)
+        confSum += colMatch.confidence
+        cardSlots.push({
+          slotIndex: colIdx,
+          augmentId: hitId,
+          xRatio: DEFAULT_SLOT_X_RATIOS[colIdx],
+          yRatio: DEFAULT_SLOT_Y_RATIO
+        })
+      }
+    }
+
+    // Fallback to whole-image segment scan if column split missed
+    if (matchedIds.length < 2) {
+      const segments: string[] = [...rawLines]
+      for (const line of rawLines) {
+        const parts = line.split(/\s{2,}/).filter((p) => p.trim().length >= 2)
+        if (parts.length > 1) segments.push(...parts)
+      }
+      const fallback = matchAugmentsFromOcrText(segments, augments, 3)
+      matchedIds.length = 0
+      cardSlots.length = 0
+      fallback.matchedIds.forEach((id, idx) => {
+        const slotIdx = (idx as 0 | 1 | 2)
+        matchedIds.push(id)
+        cardSlots.push({
+          slotIndex: slotIdx,
+          augmentId: id,
+          xRatio: DEFAULT_SLOT_X_RATIOS[slotIdx],
+          yRatio: DEFAULT_SLOT_Y_RATIO
+        })
+      })
+      confSum = fallback.confidence * matchedIds.length
+    }
+
+    const avgConf = matchedIds.length > 0 ? Number((confSum / matchedIds.length).toFixed(3)) : 0
 
     return {
       success: matchedIds.length > 0,
       matchedAugmentIds: matchedIds,
+      cardSlots,
       rawTexts: rawLines.slice(0, 8),
-      confidence,
+      confidence: avgConf,
       elapsedMs: Date.now() - start,
       error:
         matchedIds.length === 0
-          ? '未能从画面中匹配到海克斯强化卡名称，请确认三选一界面未遮挡或使用拼音首字母速查'
+          ? '未检测到三选一海克斯卡片'
           : undefined
     }
   } catch (err) {
     return {
       success: false,
       matchedAugmentIds: [],
+      cardSlots: [],
       rawTexts: [],
       confidence: 0,
       elapsedMs: Date.now() - start,
@@ -93,8 +154,8 @@ export async function captureScreenAndRecognizeAugments(
       thumbnailSize: { width: 1920, height: 1080 }
     })
 
-    const lolWin = sources.find((s) =>
-      /League of Legends|英雄联盟/i.test(s.name) && !s.thumbnail.isEmpty()
+    const lolWin = sources.find(
+      (s) => /League of Legends|英雄联盟/i.test(s.name) && !s.thumbnail.isEmpty()
     )
     const primaryScreen = sources.find((s) => s.id.startsWith('screen:') && !s.thumbnail.isEmpty())
     const chosen = lolWin || primaryScreen
@@ -103,29 +164,28 @@ export async function captureScreenAndRecognizeAugments(
       return {
         success: false,
         matchedAugmentIds: [],
+        cardSlots: [],
         rawTexts: [],
         confidence: 0,
         elapsedMs: Date.now() - start,
-        error:
-          '未获取到屏幕画面（macOS 请在「系统设置 -> 隐私与安全性 -> 屏幕录制」授权，或点击模拟测试卡面 / 用拼音首字母秒搜）'
+        error: '未获取到屏幕画面（macOS 请开启屏幕录制权限，或使用 HUD 演练模式预览）'
       }
     }
 
     const size = chosen.thumbnail.getSize()
-    // Crop central band where the 3 Hextech Augment cards sit to speed up OCR 3x and reduce chat/HUD noise
     const cropRect = {
       x: Math.round(size.width * 0.12),
       y: Math.round(size.height * 0.2),
       width: Math.round(size.width * 0.76),
-      height: Math.round(size.height * 0.56)
+      height: Math.round(size.height * 0.54)
     }
     const cropped = chosen.thumbnail.crop(cropRect)
-    const dataUrl = cropped.toDataURL()
-    return recognizeAugmentsFromDataUrl(dataUrl, augments)
+    return recognizeAugmentsFromDataUrl(cropped.toDataURL(), augments)
   } catch (err) {
     return {
       success: false,
       matchedAugmentIds: [],
+      cardSlots: [],
       rawTexts: [],
       confidence: 0,
       elapsedMs: Date.now() - start,

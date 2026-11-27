@@ -10,6 +10,7 @@ import type {
   HeroMeta,
   ItemMeta,
   OcrRecognizeResult,
+  PlaystyleMode,
   TacticalAdvice,
   UserPreferences
 } from '@shared/types'
@@ -52,8 +53,10 @@ export interface HexBuddyApi {
     items: Record<string, ItemMeta>
   }>
   setSimulator: (
-    scene: 'off' | 'champ-select' | 'level-7-pick' | 'teamfight-5v5'
+    scene: 'off' | 'champ-select' | 'level-7-pick' | 'fountain-buy'
   ) => Promise<GameLiveState>
+  setPlaystyleMode: (mode: PlaystyleMode) => Promise<GameLiveState>
+  rerollSimSlot: (slotIndex: 0 | 1 | 2) => Promise<GameLiveState>
   updateAugments: (payload: {
     pickedAugmentIds?: string[]
     candidateAugmentIds?: string[]
@@ -69,13 +72,12 @@ export interface HexBuddyApi {
   saveSettings: (next: AiSettings) => Promise<AiSettings>
   savePrefs: (next: Partial<UserPreferences>) => Promise<UserPreferences>
   toggleMiniOverlay: (forceShow?: boolean) => Promise<boolean>
-  resizeMiniOverlay: (collapsed: boolean) => Promise<void>
-  setMiniClickThrough: (ignore: boolean, tempHover?: boolean) => Promise<boolean>
+  showMainWindow: () => Promise<void>
+  setHudInteractive: (interactive: boolean) => Promise<void>
   openExternal: (url: string) => Promise<void>
   onGameStateUpdated: (cb: (state: GameLiveState) => void) => () => void
   onOcrResult: (cb: (res: OcrRecognizeResult) => void) => () => void
   onPrefsUpdated: (cb: (prefs: UserPreferences) => void) => () => void
-  onMiniClickThroughChanged: (cb: (locked: boolean) => void) => () => void
 }
 
 const api: HexBuddyApi = {
@@ -88,6 +90,8 @@ const api: HexBuddyApi = {
   switchDataset: (datasetPath, band) =>
     ipcRenderer.invoke('data:switch-dataset', datasetPath, band),
   setSimulator: (scene) => ipcRenderer.invoke('game:set-simulator', scene),
+  setPlaystyleMode: (mode) => ipcRenderer.invoke('game:set-playstyle', mode),
+  rerollSimSlot: (slotIndex) => ipcRenderer.invoke('game:reroll-sim-slot', slotIndex),
   updateAugments: (payload) => ipcRenderer.invoke('game:update-augments', payload),
   captureScreenOcr: () => ipcRenderer.invoke('ocr:capture-screen'),
   recognizeImageOcr: (imageDataUrl) => ipcRenderer.invoke('ocr:recognize-image', imageDataUrl),
@@ -97,9 +101,8 @@ const api: HexBuddyApi = {
   saveSettings: (next) => ipcRenderer.invoke('settings:save', next),
   savePrefs: (next) => ipcRenderer.invoke('prefs:save', next),
   toggleMiniOverlay: (forceShow) => ipcRenderer.invoke('window:toggle-mini', forceShow),
-  resizeMiniOverlay: (collapsed) => ipcRenderer.invoke('window:resize-mini', collapsed),
-  setMiniClickThrough: (ignore, tempHover) =>
-    ipcRenderer.invoke('window:set-mini-click-through', ignore, tempHover),
+  showMainWindow: () => ipcRenderer.invoke('window:show-main'),
+  setHudInteractive: (interactive) => ipcRenderer.invoke('window:set-hud-interactive', interactive),
   openExternal: (url) => ipcRenderer.invoke('window:open-external', url),
   onGameStateUpdated: (cb) => {
     const handler = (_: unknown, state: GameLiveState): void => cb(state)
@@ -115,11 +118,6 @@ const api: HexBuddyApi = {
     const handler = (_: unknown, prefs: UserPreferences): void => cb(prefs)
     ipcRenderer.on('prefs:updated', handler)
     return () => ipcRenderer.removeListener('prefs:updated', handler)
-  },
-  onMiniClickThroughChanged: (cb) => {
-    const handler = (_: unknown, locked: boolean): void => cb(locked)
-    ipcRenderer.on('mini:click-through-changed', handler)
-    return () => ipcRenderer.removeListener('mini:click-through-changed', handler)
   }
 }
 

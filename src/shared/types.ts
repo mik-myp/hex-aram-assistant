@@ -8,6 +8,8 @@ export type HeroRole = 'mage' | 'marksman' | 'tank' | 'fighter' | 'assassin' | '
 
 export type OverlayOpacityMode = 'solid' | 'glass' | 'clear'
 
+export type PlaystyleMode = 'steady' | 'counter' | 'team' | 'yolo' | 'torment'
+
 export interface HeroMeta {
   id: string
   alias: string
@@ -170,10 +172,13 @@ export interface UserPreferences {
   favoriteHeroIds: string[]
   overlayOpacity: OverlayOpacityMode
   autoOcrOnMilestone: boolean
+  minimizeToTray: boolean
+  badgePosition: 'top' | 'bottom'
 }
 
 export interface BenchSuggestion {
   heroId: string
+  benchIndex: number
   tier: TierGrade
   winRate: number
   deltaVsCurrent: number
@@ -181,28 +186,58 @@ export interface BenchSuggestion {
   matchesPreferredRole: boolean
   isMayhemBonusHero: boolean
   score: number
+  shortTag: string
   reason: string
+}
+
+export interface EnemyPlayerLiveInfo {
+  heroId: string
+  kills: number
+  deaths: number
+  assists: number
+  itemIds: string[]
+  isFedBoss: boolean
+}
+
+export interface CardSlotAnchor {
+  slotIndex: 0 | 1 | 2
+  augmentId: string
+  xRatio: number
+  yRatio: number
+}
+
+export interface WindowBoundsRect {
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
 export interface GameLiveState {
   connectionMode: 'disconnected' | 'lcu-champ-select' | 'live-in-game' | 'simulator'
-  simulatorScene?: 'champ-select' | 'level-7-pick' | 'teamfight-5v5'
+  simulatorScene?: 'champ-select' | 'level-7-pick' | 'fountain-buy'
+  playstyleMode: PlaystyleMode
   myHeroId: string | null
   allyHeroIds: string[]
   benchHeroIds: string[]
   enemyHeroIds: string[]
+  enemyPlayers: EnemyPlayerLiveInfo[]
   currentLevel: number
-  isDead?: boolean
+  currentGold: number
+  isDead: boolean
   isAugmentMilestone: boolean
   currentItemIds: string[]
   pickedAugmentIds: string[]
   candidateAugmentIds: string[]
+  cardSlots: CardSlotAnchor[]
+  targetBounds?: WindowBoundsRect
   lastUpdatedAt: number
 }
 
 export interface OcrRecognizeResult {
   success: boolean
   matchedAugmentIds: string[]
+  cardSlots: CardSlotAnchor[]
   rawTexts: string[]
   confidence: number
   elapsedMs: number
@@ -215,12 +250,48 @@ export interface ThreatRadar {
   enemyTankCount: number
   enemyHealThreat: number
   enemyDiveThreat: number
+  fedBossHeroId: string | null
+  fedBossKills: number
   allyDamageWarning: string | null
 }
 
+export interface SituationalAugmentEval {
+  augmentId: string
+  slotIndex?: 0 | 1 | 2
+  isRecommendedPick: boolean
+  hasConflict: boolean
+  baseWinRate: number
+  deltaWinRate: number
+  situationalScore: number
+  situationalBonus: number
+  verdict: AugmentVerdict
+  verdictLabel: string
+  primaryTag: string
+  situationReasons: string[]
+  pivotItem?: {
+    itemId: string
+    name: string
+    winRate: number
+  }
+}
+
+export interface DynamicBuildStep {
+  itemId: string
+  owned: boolean
+  affordableNow: boolean
+  goldRemaining: number
+  sourceTag: '常规核心' | '海克斯变阵' | '专治大爹' | '重伤克制' | '打坦穿透' | '防秒抗性' | '独爽核弹' | '折磨恶心' | '团队补位'
+  reason: string
+}
+
 export interface TacticalAdvice {
+  playstyleMode: PlaystyleMode
   headline: string
   threatRadar: ThreatRadar
+  recommendedShoe: { itemId: string; owned: boolean; reason: string } | null
+  immediateNextItem: DynamicBuildStep | null
+  dynamicBuildPlan: DynamicBuildStep[]
+  situationalCandidates: SituationalAugmentEval[]
   counterItemIds: Array<{ itemId: string; reason: string }>
   nextAugmentFocus: string
   playstyleTips: string[]

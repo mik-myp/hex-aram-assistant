@@ -1,75 +1,56 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
+  BookOpen,
   Camera,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
+  Check,
   Crown,
-  Eye,
+  Dices,
   Loader2,
-  Lock,
   MousePointerClick,
-  Search,
-  ShieldAlert,
   Sparkles,
   X
 } from 'lucide-react'
-import { matchesSearchQuery } from '@shared/pinyin'
-import { RARITY_BADGE, RARITY_LABEL, VERDICT_STYLE } from './HeroGuide'
+import { TIER_STYLE } from './TierRadar'
 import type {
   AugmentMeta,
+  BenchSuggestion,
   GameLiveState,
-  HeroDetailGuide,
   HeroMeta,
   ItemMeta,
-  OcrRecognizeResult,
-  OverlayOpacityMode,
-  TacticalAdvice
+  PlaystyleMode,
+  TacticalAdvice,
+  UserPreferences
 } from '@shared/types'
 
-const OPACITY_STYLES: Record<OverlayOpacityMode, { shell: string; card: string; label: string }> = {
-  solid: {
-    shell: 'bg-[#080D16] border-[#C8AA6E]/50',
-    card: 'bg-[#101A2C] border-[#C8AA6E]/25',
-    label: '实底'
-  },
-  glass: {
-    shell: 'bg-[#080D16]/78 backdrop-blur-md border-[#C8AA6E]/40',
-    card: 'bg-[#0E1726]/75 border-[#C8AA6E]/20',
-    label: '半透'
-  },
-  clear: {
-    shell: 'bg-[#05080F]/42 border-white/15',
-    card: 'bg-[#070B14]/55 border-white/15',
-    label: '全透'
-  }
-}
+const PLAYSTYLE_MODES: Array<{ key: PlaystyleMode; short: string; tip: string }> = [
+  { key: 'steady', short: '⚖️ 稳健', tip: '综合高胜率核心与局势克制，求稳上分' },
+  { key: 'counter', short: '🎯 针对', tip: '专治敌方人头大爹、重装坦克与强回血' },
+  { key: 'team', short: '🤝 团队', tip: '缺前排补肉、全队偏AP自动转物理/减抗' },
+  { key: 'yolo', short: '🔥 独爽', tip: '只顾自己爽！无视防守拉满核弹/暴击伤害上限' },
+  { key: 'torment', short: '😈 折磨', tip: '无限灼烧减速或叠肉回血，不死恶心流' }
+]
 
 export const MiniOverlay: React.FC = () => {
   const [heroes, setHeroes] = useState<Record<string, HeroMeta>>({})
   const [augments, setAugments] = useState<Record<string, AugmentMeta>>({})
   const [items, setItems] = useState<Record<string, ItemMeta>>({})
   const [gameState, setGameState] = useState<GameLiveState | null>(null)
-  const [heroId, setHeroId] = useState<string>('103')
-  const [guide, setGuide] = useState<HeroDetailGuide | null>(null)
+  const [prefs, setPrefs] = useState<UserPreferences | null>(null)
+  const [benchList, setBenchList] = useState<BenchSuggestion[]>([])
   const [advice, setAdvice] = useState<TacticalAdvice | null>(null)
 
-  const [collapsed, setCollapsed] = useState<boolean>(false)
-  const [opacityMode, setOpacityMode] = useState<OverlayOpacityMode>('solid')
-  const [clickThrough, setClickThrough] = useState<boolean>(false)
-  const [subTab, setSubTab] = useState<'pick' | 'build'>('build')
-
-  const [query, setQuery] = useState('')
   const [ocrBusy, setOcrBusy] = useState(false)
-  const [ocrMsg, setOcrMsg] = useState<string | null>(null)
   const [aiBriefBusy, setAiBriefBusy] = useState(false)
-  const [aiBriefText, setAiBriefText] = useState<string | null>(null)
+  const [aiBrief, setAiBrief] = useState<string | null>(null)
+  const [hoveredBar, setHoveredBar] = useState(false)
 
-  // Make body transparent in mini overlay window so clear/glass modes let game background shine through
   useEffect(() => {
     document.body.style.backgroundColor = 'transparent'
+    return () => {
+      window.hexbuddy.setHudInteractive(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -78,679 +59,610 @@ export const MiniOverlay: React.FC = () => {
       setAugments(boot.augments)
       setItems(boot.items)
       setGameState(boot.gameState)
-      setOpacityMode(boot.prefs.overlayOpacity || 'solid')
-      setClickThrough(boot.miniClickThrough)
-      const initialHero = boot.gameState.myHeroId || Object.keys(boot.heroes)[0]
-      if (initialHero) setHeroId(initialHero)
-      if (boot.gameState.candidateAugmentIds.length > 0) {
-        setSubTab('pick')
-      }
+      setPrefs(boot.prefs)
     })
 
     const unsubState = window.hexbuddy.onGameStateUpdated((st) => {
       setGameState(st)
-      if (st.myHeroId) setHeroId(st.myHeroId)
-      if (st.candidateAugmentIds.length > 0) {
-        setSubTab('pick')
-        setCollapsed(false)
-      }
+      setAiBrief(null)
     })
-    const unsubOcr = window.hexbuddy.onOcrResult((res: OcrRecognizeResult) => {
-      setOcrMsg(
-        res.success
-          ? `已识别 ${res.matchedAugmentIds.length} 张海克斯（${res.elapsedMs}ms）`
-          : res.error || '未识别到三选一卡片'
-      )
-      if (res.matchedAugmentIds.length > 0) {
-        setSubTab('pick')
-        setCollapsed(false)
-      }
+    const unsubPrefs = window.hexbuddy.onPrefsUpdated((p) => {
+      setPrefs(p)
     })
-    const unsubCt = window.hexbuddy.onMiniClickThroughChanged((locked) => {
-      setClickThrough(locked)
-    })
-
     return () => {
       unsubState()
-      unsubOcr()
-      unsubCt()
+      unsubPrefs()
     }
   }, [])
 
-  useEffect(() => {
-    window.hexbuddy.resizeMiniOverlay(collapsed)
-  }, [collapsed])
-
-  useEffect(() => {
-    if (!heroId) return
-    window.hexbuddy.getHeroGuide(heroId).then(setGuide)
-    window.hexbuddy.getTacticalAdvice(heroId).then(setAdvice)
-    setAiBriefText(null)
-  }, [heroId, gameState?.enemyHeroIds, gameState?.pickedAugmentIds])
-
-  const cycleOpacity = (): void => {
-    const order: OverlayOpacityMode[] = ['solid', 'glass', 'clear']
-    const next = order[(order.indexOf(opacityMode) + 1) % order.length]
-    setOpacityMode(next)
-    window.hexbuddy.savePrefs({ overlayOpacity: next })
-  }
-
-  const toggleClickThroughLock = async (): Promise<void> => {
-    const next = !clickThrough
-    const confirmed = await window.hexbuddy.setMiniClickThrough(next)
-    setClickThrough(confirmed)
-  }
-
-  const statMap = useMemo(() => {
-    return new Map((guide?.augments || []).map((s) => [s.augmentId, s]))
-  }, [guide])
-
-  const pickedTags = useMemo(() => {
-    return new Set(
-      (gameState?.pickedAugmentIds || [])
-        .flatMap((id) => augments[id]?.tags || [])
-        .filter((t) => t !== 'general')
-    )
-  }, [gameState?.pickedAugmentIds, augments])
-
-  const quickHits = useMemo(() => {
-    if (!query.trim()) return []
-    return Object.values(augments)
-      .filter((a) =>
-        matchesSearchQuery(query, {
-          name: a.name,
-          pinyinFull: a.pinyinFull,
-          pinyinInitials: a.pinyinInitials
-        })
-      )
-      .slice(0, 6)
-  }, [augments, query])
-
-  const candidates = gameState?.candidateAugmentIds || []
-  const evaluated = useMemo(() => {
-    const rows = candidates
-      .map((id) => {
-        const meta = augments[id]
-        if (!meta) return null
-        const stat = statMap.get(id)
-        const hasSynergy = meta.tags.some((t) => pickedTags.has(t))
-        const score = (stat?.smoothedWinRate ?? 0.48) + (hasSynergy ? 0.012 : 0)
-        return { meta, stat, hasSynergy, score }
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-    const bestId = rows.length >= 2 ? [...rows].sort((a, b) => b.score - a.score)[0].meta.id : null
-    return { rows, bestId }
-  }, [candidates, augments, statMap, pickedTags])
-
-  const handleOcrClick = async (): Promise<void> => {
-    setOcrBusy(true)
-    const res = await window.hexbuddy.captureScreenOcr()
-    setOcrMsg(
-      res.success
-        ? `识别成功（${res.elapsedMs}ms）`
-        : res.error || '未检测到海克斯卡，可用下方首字母秒搜'
-    )
-    if (res.matchedAugmentIds.length > 0) {
-      setSubTab('pick')
-      setCollapsed(false)
-    }
-    setOcrBusy(false)
-  }
-
-  const handleGenerateAiBrief = async (): Promise<void> => {
-    setAiBriefBusy(true)
-    const res = await window.hexbuddy.askLlmAdvisor(heroId, '__MINI_BRIEF__')
-    setAiBriefText(res.content)
-    setAiBriefBusy(false)
-  }
-
-  const addCandidate = (id: string): void => {
-    if (candidates.includes(id)) return
-    const next = candidates.length >= 3 ? [...candidates.slice(1), id] : [...candidates, id]
-    window.hexbuddy.updateAugments({ candidateAugmentIds: next })
-    setSubTab('pick')
-    setQuery('')
-  }
-
-  const pickWinnerAndCollapse = (id: string): void => {
-    const prev = gameState?.pickedAugmentIds || []
-    const nextPicked = prev.includes(id) ? prev : [...prev, id].slice(-4)
-    window.hexbuddy.updateAugments({ pickedAugmentIds: nextPicked, candidateAugmentIds: [] })
-    setSubTab('build')
-    // Automatically collapse back into unobtrusive combat pill after picking!
-    setCollapsed(true)
-  }
-
+  const heroId = gameState?.myHeroId || '1'
   const currentHero = heroes[heroId]
-  const nextCounterItemId =
-    advice?.counterItemIds?.[0]?.itemId || guide?.coreBuilds?.[0]?.items?.[0]
-  const nextItem = nextCounterItemId ? items[nextCounterItemId] : null
-  const theme = OPACITY_STYLES[opacityMode]
 
-  // =========================================================================
-  // STATE 1: COLLAPSED COMBAT HUD PILL (400 x 50px) — Zero screen clutter!
-  // =========================================================================
-  if (collapsed) {
-    return (
+  useEffect(() => {
+    if (!gameState) return
+    window.hexbuddy.getTacticalAdvice(heroId).then(setAdvice)
+    if (gameState.benchHeroIds.length > 0) {
+      window.hexbuddy
+        .getBenchSuggestions(gameState.myHeroId, gameState.allyHeroIds, gameState.benchHeroIds)
+        .then(setBenchList)
+    } else {
+      setBenchList([])
+    }
+  }, [
+    heroId,
+    gameState?.playstyleMode,
+    gameState?.enemyHeroIds,
+    gameState?.allyHeroIds,
+    gameState?.benchHeroIds,
+    gameState?.pickedAugmentIds,
+    gameState?.candidateAugmentIds,
+    gameState?.currentItemIds,
+    gameState?.currentGold,
+    prefs?.favoriteHeroIds,
+    prefs?.preferredRoles
+  ])
+
+  const enterInteractive = (): void => {
+    setHoveredBar(true)
+    window.hexbuddy.setHudInteractive(true)
+  }
+
+  const leaveInteractive = (): void => {
+    setHoveredBar(false)
+    window.hexbuddy.setHudInteractive(false)
+  }
+
+  if (!gameState) return null
+
+  const isSimulator = gameState.connectionMode === 'simulator'
+  const isChampSelect =
+    gameState.connectionMode === 'lcu-champ-select' ||
+    (isSimulator && gameState.simulatorScene === 'champ-select')
+  const hasThreePick = gameState.cardSlots.length > 0 && (advice?.situationalCandidates.length ?? 0) > 0
+  const showShoppingDrawer = Boolean(gameState.isDead && !hasThreePick) || hoveredBar
+
+  const nextStep = advice?.immediateNextItem
+  const nextItem = nextStep ? items[nextStep.itemId] : null
+  const badgeAtBottom = prefs?.badgePosition === 'bottom'
+
+  const evalByAugId = new Map(
+    (advice?.situationalCandidates || []).map((ev) => [ev.augmentId, ev])
+  )
+
+  const handleSimPickCard = (augId: string): void => {
+    const nextPicked = gameState.pickedAugmentIds.includes(augId)
+      ? gameState.pickedAugmentIds
+      : [...gameState.pickedAugmentIds, augId].slice(-4)
+    window.hexbuddy.updateAugments({
+      pickedAugmentIds: nextPicked,
+      candidateAugmentIds: []
+    })
+  }
+
+  return (
+    <div className="w-screen h-screen bg-transparent pointer-events-none relative overflow-hidden select-none text-xs">
+      {/* =====================================================================
+          SIMULATOR BACKDROP (Only rendered during desktop preview mode so users
+          on macOS / outside game see exact spatial alignment!)
+          ===================================================================== */}
+      {isSimulator && (
+        <div className="absolute inset-0 bg-[#050912]/72 backdrop-blur-[2px] flex items-center justify-center">
+          <div
+            onMouseEnter={enterInteractive}
+            onMouseLeave={leaveInteractive}
+            className="pointer-events-auto fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-[#0D1626]/95 border border-[#C8AA6E]/45 flex items-center gap-2 shadow-2xl"
+          >
+            <span className="text-[11px] text-[#E2C992] font-semibold">原位 HUD 演练场：</span>
+            {(
+              [
+                { key: 'champ-select', label: '① 选人替补席原位贴标' },
+                { key: 'level-7-pick', label: '② 局内三选一原位贴标+刷新' },
+                { key: 'fountain-buy', label: '③ 阵亡逛商店动态出装' }
+              ] as const
+            ).map((sc) => (
+              <button
+                key={sc.key}
+                onClick={() => window.hexbuddy.setSimulator(sc.key)}
+                className={`px-2.5 py-1 rounded-full text-[11px] cursor-pointer transition ${
+                  gameState.simulatorScene === sc.key
+                    ? 'bg-[#C8AA6E] text-[#070B12] font-bold'
+                    : 'bg-white/8 text-[#C8C1B2] hover:text-white'
+                }`}
+              >
+                {sc.label}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                leaveInteractive()
+                window.hexbuddy.setSimulator('off')
+                window.hexbuddy.toggleMiniOverlay(false)
+              }}
+              className="ml-2 px-2.5 py-1 rounded-full bg-rose-500/20 hover:bg-rose-500/35 text-rose-200 border border-rose-400/40 text-[11px] cursor-pointer"
+            >
+              退出演练
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          1. TOP-CENTER HUD BAR (5 Mindset Pills + Next Item + Fountain Roadmap)
+             Quiet & translucent during alive combat; expands on death/hover!
+          ===================================================================== */}
       <div
-        className={`h-screen w-screen rounded-lg border px-2.5 flex items-center justify-between gap-2 text-xs shadow-lg ${theme.shell}`}
+        onMouseEnter={enterInteractive}
+        onMouseLeave={leaveInteractive}
+        className="pointer-events-auto fixed top-2.5 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center max-w-[94vw]"
       >
-        <div className="app-drag flex items-center gap-2 min-w-0 flex-1 py-1">
+        {/* Main Slim Pill */}
+        <div
+          className={`px-3 py-1.5 rounded-full border flex items-center gap-2.5 transition-all shadow-xl ${
+            hoveredBar || gameState.isDead || isSimulator
+              ? 'bg-[#09101D]/95 border-[#C8AA6E]/55 opacity-100'
+              : 'bg-[#09101D]/58 border-white/15 opacity-75'
+          }`}
+        >
+          {/* Current Hero + Skill Order */}
           {currentHero && (
-            <img
-              src={currentHero.avatarUrl}
-              alt=""
-              className="w-7 h-7 rounded border border-[#C8AA6E]/50 shrink-0"
-            />
-          )}
-          <div className="min-w-0 truncate">
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-[#F0E6D2]">{currentHero?.name || '海斗军师'}</span>
-              {currentHero?.skillOrder && (
-                <span className="text-[10px] px-1 rounded bg-[#C8AA6E]/20 text-[#E2C992]">
+            <div className="flex items-center gap-1.5 pr-2 border-r border-white/15">
+              <img
+                src={currentHero.avatarUrl}
+                alt=""
+                className="w-6 h-6 rounded-full border border-[#C8AA6E]/60"
+              />
+              <span className="font-bold text-[#F0E6D2]">{currentHero.name}</span>
+              {currentHero.skillOrder && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#C8AA6E]/20 text-[#E2C992]">
                   {currentHero.skillOrder}
                 </span>
               )}
             </div>
-            {nextItem && (
-              <div className="flex items-center gap-1 text-[11px] text-[#5CF2E5] truncate">
-                <span>下一件:</span>
-                <img src={nextItem.iconUrl} alt="" className="w-3.5 h-3.5 rounded-sm" />
-                <span className="truncate">{nextItem.name}</span>
+          )}
+
+          {/* 5 Playstyle Mindset Switcher */}
+          <div className="flex items-center gap-0.5 bg-black/45 p-0.5 rounded-full border border-white/10">
+            {PLAYSTYLE_MODES.map((pm) => {
+              const active = gameState.playstyleMode === pm.key
+              return (
+                <button
+                  key={pm.key}
+                  onClick={() => window.hexbuddy.setPlaystyleMode(pm.key)}
+                  title={pm.tip}
+                  className={`px-2 py-0.5 rounded-full text-[11px] cursor-pointer transition whitespace-nowrap ${
+                    active
+                      ? 'bg-[#C8AA6E] text-[#070B12] font-bold shadow'
+                      : 'text-[#94A3B8] hover:text-[#F0E6D2]'
+                  }`}
+                >
+                  {pm.short}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Next Item + Live Gold Status */}
+          {nextItem && nextStep && !isChampSelect && (
+            <div className="flex items-center gap-1.5 pl-1 border-l border-white/15">
+              <span className="text-[11px] text-[#94A3B8]">下一件:</span>
+              <img src={nextItem.iconUrl} alt="" className="w-5 h-5 rounded border border-[#C8AA6E]/40" />
+              <span className="font-semibold text-[#F0E6D2]">{nextItem.name}</span>
+              {nextStep.affordableNow ? (
+                <span className="px-1.5 py-0.5 rounded bg-[#0AC8B9]/25 text-[#5CF2E5] border border-[#0AC8B9]/45 text-[10px] font-bold">
+                  钱已够!
+                </span>
+              ) : (
+                <span className="text-[10px] text-[#94A3B8] tabular-nums">
+                  差{nextStep.goldRemaining}金
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Picked Augment Mini Slots (click to remove/adjust) */}
+          {gameState.pickedAugmentIds.length > 0 && (
+            <div className="flex items-center gap-1 pl-1 border-l border-white/15">
+              {gameState.pickedAugmentIds.map((aid) => {
+                const am = augments[aid]
+                if (!am) return null
+                return (
+                  <button
+                    key={aid}
+                    onClick={() =>
+                      window.hexbuddy.updateAugments({
+                        pickedAugmentIds: gameState.pickedAugmentIds.filter((x) => x !== aid)
+                      })
+                    }
+                    title={`已记录：${am.name}（点击移除）`}
+                    className="w-5 h-5 rounded bg-black/50 border border-[#C8AA6E]/40 overflow-hidden cursor-pointer hover:border-rose-400"
+                  >
+                    {am.iconUrl && <img src={am.iconUrl} alt="" className="w-full h-full" />}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Utility Buttons */}
+          <div className="flex items-center gap-1 pl-1 border-l border-white/15">
+            <button
+              onClick={async () => {
+                setOcrBusy(true)
+                await window.hexbuddy.captureScreenOcr()
+                setOcrBusy(false)
+              }}
+              title="手动重识三选一 (Alt+S)"
+              className="p-1 rounded-full hover:bg-white/10 text-[#0AC8B9] cursor-pointer"
+            >
+              {ocrBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={() => window.hexbuddy.showMainWindow()}
+              title="打开攻略查阅词典"
+              className="p-1 rounded-full hover:bg-white/10 text-[#C8C1B2] hover:text-white cursor-pointer"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => {
+                leaveInteractive()
+                window.hexbuddy.toggleMiniOverlay(false)
+              }}
+              title="隐藏原位 HUD (Alt+H)"
+              className="p-1 rounded-full hover:bg-white/10 text-[#94A3B8] hover:text-white cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Fountain Shopping Roadmap Strip (Auto-expands when Dead in Base or Hovered!) */}
+        {showShoppingDrawer && !isChampSelect && advice && (
+          <div className="mt-2 px-4 py-3 rounded-xl bg-[#09101D]/95 border border-[#C8AA6E]/45 shadow-2xl space-y-2.5 max-w-3xl">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-[#F0E6D2]">{advice.headline}</span>
+                <span className="text-[11px] text-[#E2C992] tabular-nums">
+                  当前金币: {gameState.currentGold}
+                </span>
+              </div>
+
+              <button
+                onClick={async () => {
+                  setAiBriefBusy(true)
+                  const r = await window.hexbuddy.askLlmAdvisor(heroId, '__MINI_BRIEF__')
+                  setAiBrief(r.content)
+                  setAiBriefBusy(false)
+                }}
+                disabled={aiBriefBusy}
+                className="px-2.5 py-0.5 rounded-full bg-[#C8AA6E]/20 hover:bg-[#C8AA6E]/35 border border-[#C8AA6E]/45 text-[11px] text-[#E2C992] flex items-center gap-1 cursor-pointer"
+              >
+                {aiBriefBusy ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3 h-3" />
+                )}
+                <span>AI 一句话锦囊</span>
+              </button>
+            </div>
+
+            {aiBrief && (
+              <div className="px-3 py-2 rounded bg-black/55 border border-[#0AC8B9]/40 text-[11px] text-[#F0E6D2] whitespace-pre-wrap">
+                {aiBrief}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Recommended Shoe */}
+              {advice.recommendedShoe && items[advice.recommendedShoe.itemId] && (
+                <div
+                  title={advice.recommendedShoe.reason}
+                  className={`px-2 py-1.5 rounded-lg border flex items-center gap-1.5 ${
+                    advice.recommendedShoe.owned
+                      ? 'bg-black/30 border-white/10 opacity-50'
+                      : 'bg-[#121E32] border-[#C8AA6E]/30'
+                  }`}
+                >
+                  <img
+                    src={items[advice.recommendedShoe.itemId].iconUrl}
+                    alt=""
+                    className="w-7 h-7 rounded"
+                  />
+                  <div>
+                    <div className="text-[10px] text-[#94A3B8]">推荐鞋</div>
+                    <div className="text-[11px] font-semibold text-[#F0E6D2]">
+                      {items[advice.recommendedShoe.itemId].name}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 5 Dynamic Items */}
+              {advice.dynamicBuildPlan.map((step, idx) => {
+                const im = items[step.itemId]
+                if (!im) return null
+                const isNext = nextStep?.itemId === step.itemId && !step.owned
+                return (
+                  <React.Fragment key={step.itemId}>
+                    <div
+                      title={`${step.reason}\n${im.brief}`}
+                      className={`px-2.5 py-1.5 rounded-lg border flex items-center gap-2 transition ${
+                        step.owned
+                          ? 'bg-black/30 border-emerald-500/30 opacity-55'
+                          : isNext
+                            ? 'bg-[#10283B] border-[#0AC8B9] shadow-[0_0_12px_rgba(10,200,185,0.25)]'
+                            : 'bg-[#121E32] border-[#C8AA6E]/25'
+                      }`}
+                    >
+                      <img src={im.iconUrl} alt="" className="w-7 h-7 rounded shrink-0" />
+                      <div>
+                        <div className="flex items-center gap-1">
+                          <span
+                            className={`text-[10px] px-1 rounded ${
+                              step.sourceTag === '常规核心'
+                                ? 'bg-white/10 text-[#C8C1B2]'
+                                : 'bg-[#C8AA6E]/25 text-[#E2C992]'
+                            }`}
+                          >
+                            {step.owned ? '✓ 已买' : step.sourceTag}
+                          </span>
+                          {isNext && step.affordableNow && (
+                            <span className="text-[10px] text-[#5CF2E5] font-bold">直接买!</span>
+                          )}
+                        </div>
+                        <div className="text-[11px] font-semibold text-[#F0E6D2] mt-0.5">
+                          {im.name}
+                        </div>
+                      </div>
+                    </div>
+                    {idx < advice.dynamicBuildPlan.length - 1 && (
+                      <ArrowRight className="w-3 h-3 text-[#64748B]" />
+                    )}
+                  </React.Fragment>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* =====================================================================
+          2. SCENE A: CHAMP SELECT IN-PLACE BENCH PORTRAIT BADGES
+             Directly aligned underneath each Bench hero slot in LOL Client!
+          ===================================================================== */}
+      {isChampSelect && benchList.length > 0 && (
+        <div className="absolute inset-0 pointer-events-none">
+          {/* Center Bench Row aligned at top-center of 16:9 LOL Client */}
+          <div className="absolute top-[13%] left-1/2 -translate-x-1/2 flex items-start gap-3">
+            {benchList.map((sug) => {
+              const h = heroes[sug.heroId]
+              if (!h) return null
+              const isHot = sug.isFavorite || sug.deltaVsCurrent >= 0.02 || sug.tier === 'T0'
+              return (
+                <div key={`${sug.heroId}-${sug.benchIndex}`} className="flex flex-col items-center w-24">
+                  {/* Show simulated client bench portrait in demo mode */}
+                  {isSimulator && (
+                    <div className="mb-1.5 relative">
+                      <img
+                        src={h.avatarUrl}
+                        alt={h.name}
+                        className="w-14 h-14 rounded-md border-2 border-[#C8AA6E]/70 shadow-lg"
+                      />
+                      <span className="absolute bottom-0 inset-x-0 bg-black/70 text-[10px] text-center text-[#F0E6D2] py-0.5">
+                        {h.name}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* The actual In-Place Spatial Badge painted directly beneath the bench slot! */}
+                  <div
+                    className={`w-full px-1.5 py-1 rounded-md border text-center shadow-xl ${
+                      isHot
+                        ? 'bg-[#081F2D]/95 border-[#0AC8B9] shadow-[0_0_14px_rgba(10,200,185,0.28)]'
+                        : 'bg-[#090F1A]/92 border-white/20'
+                    }`}
+                  >
+                    <div
+                      className={`text-[10px] font-bold truncate ${
+                        isHot ? 'text-[#5CF2E5]' : 'text-[#C8C1B2]'
+                      }`}
+                    >
+                      {sug.shortTag}
+                    </div>
+                    <div className="flex items-center justify-center gap-1 mt-0.5 tabular-nums">
+                      <span className="text-[11px] font-bold text-[#F0E6D2]">
+                        {(sug.winRate * 100).toFixed(1)}%
+                      </span>
+                      <span
+                        className={`text-[10px] font-semibold ${
+                          sug.deltaVsCurrent >= 0 ? 'text-[#0AC8B9]' : 'text-rose-400'
+                        }`}
+                      >
+                        {sug.deltaVsCurrent >= 0 ? '+' : ''}
+                        {(sug.deltaVsCurrent * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Left-side My Team Composition Callout */}
+          <div className="absolute left-[6%] top-[28%] bg-[#09101D]/92 border border-[#C8AA6E]/45 rounded-lg p-3 space-y-2 shadow-xl max-w-60">
+            <div className="text-[11px] font-bold text-[#E2C992]">我方阵容体检</div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {gameState.allyHeroIds.map((hid, i) => {
+                const ah = heroes[hid]
+                if (!ah) return null
+                return (
+                  <div key={`${hid}-${i}`} className="flex items-center gap-1 bg-black/40 px-1.5 py-0.5 rounded">
+                    <img src={ah.avatarUrl} alt="" className="w-5 h-5 rounded" />
+                    <span className="text-[10px] text-[#F0E6D2]">{ah.name}</span>
+                    <span className={`text-[9px] px-1 rounded border ${TIER_STYLE[ah.tier]}`}>
+                      {ah.tier}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            {advice?.threatRadar.allyDamageWarning && (
+              <div className="text-[11px] text-amber-300 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>{advice.threatRadar.allyDamageWarning}</span>
               </div>
             )}
           </div>
         </div>
+      )}
 
-        <div
-          onMouseEnter={() => {
-            if (clickThrough) window.hexbuddy.setMiniClickThrough(false, true)
-          }}
-          onMouseLeave={() => {
-            if (clickThrough) window.hexbuddy.setMiniClickThrough(true, true)
-          }}
-          className="app-no-drag flex items-center gap-1 shrink-0"
-        >
-          <button
-            onClick={toggleClickThroughLock}
-            title={
-              clickThrough
-                ? '当前已开启鼠标穿透（防团战误点），点击或按 Alt+H 解锁'
-                : '开启鼠标右键穿透锁定（团战不抢游戏焦点）'
-            }
-            className={`p-1.5 rounded border cursor-pointer transition ${
-              clickThrough
-                ? 'bg-amber-500/30 border-amber-400 text-amber-200'
-                : 'bg-black/30 border-white/15 text-[#94A3B8] hover:text-white'
-            }`}
-          >
-            {clickThrough ? (
-              <Lock className="w-3.5 h-3.5" />
-            ) : (
-              <MousePointerClick className="w-3.5 h-3.5" />
-            )}
-          </button>
+      {/* =====================================================================
+          3. SCENE B: IN-GAME 3-CARD SPATIAL AUGMENT OVERLAY BADGES
+             Painted directly above/below the 3 Hextech Augment Cards in center!
+          ===================================================================== */}
+      {hasThreePick && (
+        <div className="absolute inset-0 pointer-events-none">
+          {gameState.cardSlots.map((slot) => {
+            const meta = augments[slot.augmentId]
+            const ev = evalByAugId.get(slot.augmentId)
+            if (!meta || !ev) return null
 
-          {!clickThrough && (
-            <>
-              <button
-                onClick={handleOcrClick}
-                disabled={ocrBusy}
-                title="一键截屏识别三选一 (Alt+S)"
-                className="px-2 py-1 rounded bg-[#0AC8B9] text-[#070B12] font-semibold flex items-center gap-1 cursor-pointer"
-              >
-                {ocrBusy ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <Camera className="w-3 h-3" />
-                )}
-                <span>识屏</span>
-              </button>
+            const isBest = ev.isRecommendedPick
+            const isTrap = ev.verdict === 'TRAP' || ev.hasConflict
 
-              <button
-                onClick={() => setCollapsed(false)}
-                title="展开三选一与出装详情"
-                className="p-1.5 rounded bg-black/30 border border-white/15 text-[#F0E6D2] hover:bg-white/10 cursor-pointer"
-              >
-                <ChevronDown className="w-3.5 h-3.5" />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  // =========================================================================
-  // STATE 2: EXPANDED FOUNTAIN / 3-PICK DECISION OVERLAY (440 x 590px)
-  // =========================================================================
-  return (
-    <div
-      className={`h-screen w-screen rounded-lg border flex flex-col overflow-hidden text-xs shadow-2xl ${theme.shell}`}
-    >
-      {/* Top Control Header */}
-      <div className="app-drag h-10 px-3 bg-black/35 border-b border-[#C8AA6E]/25 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          {currentHero && (
-            <img
-              src={currentHero.avatarUrl}
-              alt=""
-              className="w-6 h-6 rounded border border-[#C8AA6E]/45 shrink-0"
-            />
-          )}
-          <span className="font-bold text-[#F0E6D2] truncate">{currentHero?.name || 'HexBuddy'}</span>
-          {currentHero?.skillOrder && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#C8AA6E]/20 text-[#E2C992] border border-[#C8AA6E]/35 shrink-0">
-              {currentHero.skillOrder}
-            </span>
-          )}
-        </div>
-
-        <div
-          onMouseEnter={() => {
-            if (clickThrough) window.hexbuddy.setMiniClickThrough(false, true)
-          }}
-          onMouseLeave={() => {
-            if (clickThrough) window.hexbuddy.setMiniClickThrough(true, true)
-          }}
-          className="app-no-drag flex items-center gap-1"
-        >
-          <button
-            onClick={cycleOpacity}
-            title="切换背景透明度（实底 / 毛玻璃半透 / 全透浮字）"
-            className="px-1.5 py-1 rounded bg-black/40 border border-white/15 text-[11px] text-[#C8C1B2] hover:text-white flex items-center gap-1 cursor-pointer"
-          >
-            <Eye className="w-3 h-3 text-[#C8AA6E]" />
-            <span>{theme.label}</span>
-          </button>
-
-          <button
-            onClick={toggleClickThroughLock}
-            title={clickThrough ? '点击或按 Alt+H 解锁鼠标穿透' : '锁定鼠标穿透防误点'}
-            className={`px-1.5 py-1 rounded border text-[11px] flex items-center gap-1 cursor-pointer ${
-              clickThrough
-                ? 'bg-amber-500/30 border-amber-400 text-amber-200'
-                : 'bg-black/40 border-white/15 text-[#C8C1B2] hover:text-white'
-            }`}
-          >
-            {clickThrough ? <Lock className="w-3 h-3" /> : <MousePointerClick className="w-3 h-3" />}
-            <span>{clickThrough ? '已穿透' : '穿透'}</span>
-          </button>
-
-          <button
-            onClick={handleOcrClick}
-            disabled={ocrBusy}
-            className="px-2 py-1 rounded bg-[#0AC8B9] text-[#070B12] font-semibold flex items-center gap-1 cursor-pointer"
-          >
-            {ocrBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Camera className="w-3 h-3" />}
-            <span>识屏</span>
-          </button>
-
-          <button
-            onClick={() => setCollapsed(true)}
-            title="收起为顶部窄胶囊条（团战不挡视野）"
-            className="p-1 text-[#C8C1B2] hover:text-white cursor-pointer"
-          >
-            <ChevronUp className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => window.hexbuddy.toggleMiniOverlay(false)}
-            title="隐藏悬浮窗 (Alt+H)"
-            className="p-1 text-[#94A3B8] hover:text-white cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Dual-View Switcher + Picked Augment Mini Icons */}
-      <div className="px-3 py-2 bg-black/25 border-b border-white/10 flex items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center bg-black/40 rounded p-0.5 border border-white/10">
-          <button
-            onClick={() => setSubTab('pick')}
-            className={`px-2.5 py-1 rounded text-[11px] font-medium cursor-pointer transition ${
-              subTab === 'pick'
-                ? 'bg-[#C8AA6E] text-[#070B12] font-semibold'
-                : 'text-[#C8C1B2] hover:text-white'
-            }`}
-          >
-            三选一决策 {candidates.length > 0 ? `(${candidates.length})` : ''}
-          </button>
-          <button
-            onClick={() => setSubTab('build')}
-            className={`px-2.5 py-1 rounded text-[11px] font-medium cursor-pointer transition ${
-              subTab === 'build'
-                ? 'bg-[#C8AA6E] text-[#070B12] font-semibold'
-                : 'text-[#C8C1B2] hover:text-white'
-            }`}
-          >
-            买装与速记
-          </button>
-        </div>
-
-        {/* 4 Picked Augment mini badges */}
-        <div className="flex items-center gap-1">
-          {[0, 1, 2, 3].map((idx) => {
-            const aid = gameState?.pickedAugmentIds[idx]
-            const am = aid ? augments[aid] : null
             return (
               <div
-                key={idx}
-                title={am ? `已拿: ${am.name}` : '待选槽'}
-                className="w-6 h-6 rounded border border-white/15 bg-black/40 flex items-center justify-center overflow-hidden"
+                key={`${slot.slotIndex}-${slot.augmentId}`}
+                style={{
+                  left: `${slot.xRatio * 100}%`,
+                  top: isSimulator ? '50%' : badgeAtBottom ? '74%' : '21%'
+                }}
+                className={`absolute -translate-x-1/2 ${
+                  isSimulator ? '-translate-y-1/2' : ''
+                } flex flex-col items-center w-64`}
               >
-                {am?.iconUrl ? (
-                  <img src={am.iconUrl} alt="" className="w-5 h-5" />
-                ) : (
-                  <span className="text-[9px] text-slate-500">{[3, 7, 11, 15][idx]}</span>
+                {/* Spatial Floating Recommendation Tag (Top position) */}
+                {!badgeAtBottom && (
+                  <SpatialCardBadge meta={meta} ev={ev} isBest={isBest} isTrap={isTrap} />
+                )}
+
+                {/* Simulated Game Card Frame (ONLY shown in desktop simulator so user can test Reroll & Pick!) */}
+                {isSimulator && (
+                  <div
+                    onMouseEnter={enterInteractive}
+                    onMouseLeave={leaveInteractive}
+                    className={`pointer-events-auto my-2.5 w-60 rounded-xl p-4 border bg-[#0E1726]/95 text-center space-y-2.5 shadow-2xl ${
+                      isBest ? 'border-[#0AC8B9]' : 'border-[#C8AA6E]/35'
+                    }`}
+                  >
+                    <div className="text-[10px] text-[#64748B]">（模拟游戏中央卡片 #{slot.slotIndex + 1}）</div>
+                    {meta.iconUrl && (
+                      <img src={meta.iconUrl} alt="" className="w-12 h-12 mx-auto rounded-lg bg-black/50 p-1" />
+                    )}
+                    <div className="text-sm font-bold text-[#F0E6D2]">{meta.name}</div>
+                    <p className="text-[11px] text-[#94A3B8] line-clamp-2">{meta.desc}</p>
+                    <div className="pt-1 flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleSimPickCard(meta.id)}
+                        className="flex-1 py-1.5 rounded bg-[#C8AA6E] hover:bg-[#E2C992] text-[#070B12] font-bold text-[11px] flex items-center justify-center gap-1 cursor-pointer"
+                      >
+                        <MousePointerClick className="w-3 h-3" />
+                        <span>模拟选它</span>
+                      </button>
+                      <button
+                        onClick={() => window.hexbuddy.rerollSimSlot(slot.slotIndex)}
+                        title="模拟在游戏里点击骰子刷新这张海克斯卡"
+                        className="px-2.5 py-1.5 rounded bg-white/10 hover:bg-white/20 text-[#F0E6D2] text-[11px] flex items-center gap-1 cursor-pointer"
+                      >
+                        <Dices className="w-3.5 h-3.5 text-[#0AC8B9]" />
+                        <span>刷新</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Spatial Floating Recommendation Tag (Bottom position) */}
+                {badgeAtBottom && (
+                  <SpatialCardBadge meta={meta} ev={ev} isBest={isBest} isTrap={isTrap} />
                 )}
               </div>
             )
           })}
         </div>
-      </div>
+      )}
+    </div>
+  )
+}
 
-      {/* Main Scrollable Content */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-        {/* Hero quick switch + Pinyin quick input */}
-        <div className="flex gap-1.5">
-          <select
-            value={heroId}
-            onChange={(e) => setHeroId(e.target.value)}
-            className="w-26 px-2 py-1.5 rounded bg-black/50 border border-[#C8AA6E]/30 text-[#F0E6D2] focus:outline-none"
-          >
-            {Object.values(heroes)
-              .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-              .map((h) => (
-                <option key={h.id} value={h.id} className="bg-[#0C1320]">
-                  {h.name}
-                </option>
-              ))}
-          </select>
-
-          <div className="relative flex-1">
-            <Search className="w-3.5 h-3.5 text-[#94A3B8] absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="输首字母秒加三选一 (如 zghs)"
-              className="w-full pl-8 pr-2 py-1.5 rounded bg-black/50 border border-[#C8AA6E]/30 text-[#F0E6D2] placeholder-[#64748B] focus:outline-none focus:border-[#C8AA6E]"
-            />
-          </div>
+const SpatialCardBadge: React.FC<{
+  meta: AugmentMeta
+  ev: NonNullable<TacticalAdvice['situationalCandidates'][number]>
+  isBest: boolean
+  isTrap: boolean
+}> = ({ meta, ev, isBest, isTrap }) => {
+  return (
+    <div
+      className={`w-full rounded-xl px-3.5 py-2.5 border shadow-2xl backdrop-blur-md space-y-1 ${
+        isBest
+          ? 'bg-[#072230]/95 border-2 border-[#0AC8B9] shadow-[0_0_24px_rgba(10,200,185,0.35)]'
+          : isTrap
+            ? 'bg-[#240B15]/95 border border-rose-500/75'
+            : 'bg-[#0A111E]/95 border border-[#C8AA6E]/45'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {isBest ? (
+            <span className="px-1.5 py-0.5 rounded bg-[#0AC8B9] text-[#070B12] text-[10px] font-extrabold flex items-center gap-0.5 shrink-0">
+              <Crown className="w-3 h-3" />
+              首选
+            </span>
+          ) : isTrap ? (
+            <span className="px-1.5 py-0.5 rounded bg-rose-500 text-white text-[10px] font-bold shrink-0">
+              避坑
+            </span>
+          ) : (
+            <span className="px-1.5 py-0.5 rounded bg-white/15 text-[#F0E6D2] text-[10px] font-semibold shrink-0">
+              备选
+            </span>
+          )}
+          <span className="font-bold text-[#F0E6D2] truncate">{meta.name}</span>
         </div>
 
-        {quickHits.length > 0 && (
-          <div className={`flex flex-wrap gap-1 p-2 rounded border ${theme.card}`}>
-            {quickHits.map((m) => (
-              <button
-                key={m.id}
-                onClick={() => addCandidate(m.id)}
-                className={`px-2 py-1 rounded border text-[11px] cursor-pointer ${RARITY_BADGE[m.rarity]}`}
-              >
-                + {m.name}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="text-right tabular-nums shrink-0">
+          <span className="font-extrabold text-sm text-[#F0E6D2]">
+            {(ev.baseWinRate * 100).toFixed(1)}%
+          </span>
+          <span
+            className={`ml-1 text-[11px] font-semibold ${
+              ev.deltaWinRate >= 0 ? 'text-[#0AC8B9]' : 'text-rose-400'
+            }`}
+          >
+            {ev.deltaWinRate >= 0 ? '+' : ''}
+            {(ev.deltaWinRate * 100).toFixed(1)}%
+          </span>
+        </div>
+      </div>
 
-        {ocrMsg && (
-          <div className="px-2.5 py-1.5 rounded bg-black/45 border border-[#C8AA6E]/25 text-[11px] text-[#C8C1B2]">
-            {ocrMsg}
-          </div>
-        )}
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <span
+          className={`font-semibold truncate ${
+            isBest ? 'text-[#5CF2E5]' : isTrap ? 'text-rose-300' : 'text-[#E2C992]'
+          }`}
+        >
+          {ev.primaryTag}
+        </span>
 
-        {subTab === 'pick' ? (
-          // ---------------- VIEW A: 3-PICK DECISION ----------------
-          evaluated.rows.length > 0 ? (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-[11px] text-[#C8C1B2]">
-                <span>点“选定并收起”会自动记槽并缩回顶部胶囊条</span>
-                <button
-                  onClick={() => window.hexbuddy.updateAugments({ candidateAugmentIds: [] })}
-                  className="text-rose-300 hover:underline cursor-pointer"
-                >
-                  清空重选
-                </button>
-              </div>
-              {evaluated.rows.map(({ meta, stat, hasSynergy }) => {
-                const isBest = evaluated.bestId === meta.id
-                return (
-                  <div
-                    key={meta.id}
-                    className={`p-3 rounded-lg border space-y-1.5 ${
-                      isBest
-                        ? 'bg-[#102638]/90 border-[#0AC8B9] shadow-[0_0_14px_rgba(10,200,185,0.18)]'
-                        : theme.card
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {meta.iconUrl && (
-                          <img src={meta.iconUrl} alt="" className="w-8 h-8 rounded bg-black/50" />
-                        )}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            {isBest && <Crown className="w-3.5 h-3.5 text-[#0AC8B9] shrink-0" />}
-                            <span className="font-bold text-[#F0E6D2] truncate">{meta.name}</span>
-                            <span
-                              className={`text-[10px] px-1 rounded border ${RARITY_BADGE[meta.rarity]}`}
-                            >
-                              {RARITY_LABEL[meta.rarity]}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                            {stat && (
-                              <span
-                                className={`text-[10px] px-1.5 rounded border ${
-                                  VERDICT_STYLE[stat.verdict]
-                                }`}
-                              >
-                                {stat.verdictLabel}
-                              </span>
-                            )}
-                            {hasSynergy && (
-                              <span className="text-[10px] px-1.5 rounded bg-[#0AC8B9]/20 text-[#5CF2E5]">
-                                同系联动
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="text-right tabular-nums shrink-0">
-                        <div className="text-sm font-bold text-[#F0E6D2]">
-                          {stat ? `${(stat.smoothedWinRate * 100).toFixed(1)}%` : '--'}
-                        </div>
-                        {stat && (
-                          <div
-                            className={`text-[10px] font-semibold ${
-                              stat.deltaWinRate >= 0 ? 'text-[#0AC8B9]' : 'text-rose-400'
-                            }`}
-                          >
-                            {stat.deltaWinRate >= 0 ? '+' : ''}
-                            {(stat.deltaWinRate * 100).toFixed(1)}%
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <p className="text-[11px] text-[#D5CEBE] line-clamp-2">{meta.desc}</p>
-
-                    {stat?.boundItems && stat.boundItems.length > 0 && (
-                      <div className="px-2 py-1 rounded bg-black/35 text-[11px] text-[#E2C992]">
-                        选它后首件改出：{stat.boundItems[0].name}（胜率{' '}
-                        {(stat.boundItems[0].winRate * 100).toFixed(0)}%）
-                      </div>
-                    )}
-
-                    <button
-                      onClick={() => pickWinnerAndCollapse(meta.id)}
-                      className={`w-full py-1.5 rounded font-semibold flex items-center justify-center gap-1 cursor-pointer transition ${
-                        isBest
-                          ? 'bg-[#C8AA6E] text-[#070B12] hover:bg-[#E2C992]'
-                          : 'bg-white/10 text-[#F0E6D2] hover:bg-white/20'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>选定此卡并收起</span>
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className={`p-4 rounded-lg border text-center space-y-2 ${theme.card}`}>
-              <p className="text-[#F0E6D2] font-medium">当前暂无三选一待选卡</p>
-              <p className="text-[11px] text-[#94A3B8]">
-                游戏弹出三选一时将自动识屏（也可按 Alt+S 手动识屏，或在上方输首字母如 zghs 秒加）
-              </p>
-            </div>
-          )
-        ) : (
-          // ---------------- VIEW B: FOUNTAIN BUYING & CHEAT SHEET ----------------
-          <div className="space-y-3">
-            {/* Dynamic Counter Item Priority */}
-            {advice && advice.counterItemIds.length > 0 && (
-              <div className={`p-2.5 rounded-lg border space-y-2 ${theme.card}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-[#5CF2E5] flex items-center gap-1">
-                    <ShieldAlert className="w-3.5 h-3.5" />
-                    针对本局阵容 · 优先购买推荐
-                  </span>
-                  <button
-                    onClick={handleGenerateAiBrief}
-                    disabled={aiBriefBusy}
-                    className="px-2 py-0.5 rounded bg-[#C8AA6E]/20 hover:bg-[#C8AA6E]/35 border border-[#C8AA6E]/40 text-[10px] text-[#E2C992] flex items-center gap-1 cursor-pointer"
-                  >
-                    {aiBriefBusy ? (
-                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-2.5 h-2.5" />
-                    )}
-                    <span>一键 AI 锦囊</span>
-                  </button>
-                </div>
-
-                {aiBriefText && (
-                  <div className="p-2 rounded bg-black/50 border border-[#0AC8B9]/35 text-[11px] text-[#F0E6D2] leading-snug whitespace-pre-wrap">
-                    {aiBriefText}
-                  </div>
-                )}
-
-                {advice.counterItemIds.slice(0, 2).map(({ itemId, reason }) => {
-                  const im = items[itemId]
-                  if (!im) return null
-                  return (
-                    <div key={itemId} className="flex items-start gap-2 bg-black/35 p-2 rounded">
-                      <img src={im.iconUrl} alt="" className="w-8 h-8 rounded border border-[#C8AA6E]/40 shrink-0" />
-                      <div className="min-w-0">
-                        <div className="font-semibold text-[#F0E6D2]">{im.name}</div>
-                        <div className="text-[10px] text-[#C8C1B2] leading-snug">{reason}</div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Core 3-Item Build with Chinese Names & New-Item Briefs */}
-            {guide && guide.coreBuilds[0] && (
-              <div className={`p-2.5 rounded-lg border space-y-2 ${theme.card}`}>
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-semibold text-[#E2C992]">核心三件套合成顺序（商店搜名字直买）</span>
-                  {currentHero?.topShoes?.[0] && items[currentHero.topShoes[0].itemId] && (
-                    <span className="inline-flex items-center gap-1 text-[#C8C1B2]">
-                      <img
-                        src={items[currentHero.topShoes[0].itemId].iconUrl}
-                        alt=""
-                        className="w-3.5 h-3.5 rounded-sm"
-                      />
-                      {items[currentHero.topShoes[0].itemId].name}
-                    </span>
-                  )}
-                </div>
-
-                <div className="space-y-1.5">
-                  {guide.coreBuilds[0].items.map((iid, idx) => {
-                    const im = items[iid]
-                    if (!im) return null
-                    return (
-                      <div
-                        key={`${iid}-${idx}`}
-                        className="flex items-center gap-2 bg-black/35 px-2 py-1.5 rounded"
-                      >
-                        <span className="text-[10px] text-[#C8AA6E] font-semibold shrink-0">
-                          第{idx + 1}件
-                        </span>
-                        <img src={im.iconUrl} alt="" className="w-6 h-6 rounded shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium text-[#F0E6D2] truncate">{im.name}</div>
-                          {im.brief && (
-                            <div className="text-[10px] text-[#94A3B8] truncate">{im.brief}</div>
-                          )}
-                        </div>
-                        {idx < guide.coreBuilds[0].items.length - 1 && (
-                          <ArrowRight className="w-3 h-3 text-[#64748B] shrink-0" />
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Top 5 God Augments & Top 3 Traps Cheat Sheet */}
-            {guide && (
-              <div className={`p-2.5 rounded-lg border space-y-2 ${theme.card}`}>
-                <div className="text-[11px] font-semibold text-[#F0E6D2]">
-                  本英雄必拿神卡速记（看到直接锁）
-                </div>
-                <div className="space-y-1">
-                  {guide.augments.slice(0, 5).map((st) => {
-                    const m = augments[st.augmentId]
-                    if (!m) return null
-                    return (
-                      <div
-                        key={st.augmentId}
-                        className="px-2 py-1 rounded bg-black/35 flex items-center justify-between gap-2"
-                      >
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          {m.iconUrl && <img src={m.iconUrl} alt="" className="w-5 h-5 rounded" />}
-                          <span className="text-[#F0E6D2] truncate">{m.name}</span>
-                          <span className={`text-[9px] px-1 rounded border ${RARITY_BADGE[m.rarity]}`}>
-                            {RARITY_LABEL[m.rarity]}
-                          </span>
-                        </div>
-                        <span className="text-[#0AC8B9] font-semibold tabular-nums shrink-0">
-                          {(st.smoothedWinRate * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {guide.trapAugments.length > 0 && (
-                  <div className="pt-1.5 border-t border-white/10 flex items-center gap-1.5 flex-wrap text-[11px]">
-                    <span className="text-rose-300 font-medium flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" />
-                      千万别碰:
-                    </span>
-                    {guide.trapAugments.slice(0, 3).map((t) => (
-                      <span
-                        key={t.augmentId}
-                        className="px-1.5 py-0.5 rounded bg-rose-950/60 border border-rose-500/35 text-rose-200 text-[10px]"
-                      >
-                        {augments[t.augmentId]?.name} ({(t.deltaWinRate * 100).toFixed(1)}%)
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+        {ev.pivotItem && (
+          <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/45 text-[#E2C992] shrink-0">
+            配装: {ev.pivotItem.name}
+          </span>
         )}
       </div>
+
+      {ev.situationReasons[0] && (
+        <div className="text-[10px] text-[#C8C1B2] truncate">{ev.situationReasons[0]}</div>
+      )}
     </div>
   )
 }

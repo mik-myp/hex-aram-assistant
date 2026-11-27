@@ -1,7 +1,17 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { app, BrowserWindow, globalShortcut, ipcMain, screen, shell } from 'electron'
+import { dirname, join, resolve } from 'node:path'
+import {
+  app,
+  BrowserWindow,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  nativeImage,
+  screen,
+  shell,
+  Tray
+} from 'electron'
 import { DataSyncService } from './data/syncService'
 import {
   buildAugmentReverseDetail,
@@ -10,14 +20,15 @@ import {
 } from './data/synergyEngine'
 import { ReadOnlyLcuWatcher, type LcuChampSelectSnapshot } from './game/lcuWatcher'
 import { ReadOnlyLiveWatcher, type LiveMatchSnapshot } from './game/liveWatcher'
-import { createSimulatorScene } from './game/mockSimulator'
+import { createSimulatorScene, makeDefaultCardSlots } from './game/mockSimulator'
+import { findActiveLeagueWindowBounds } from './game/windowTracker'
 import {
   captureScreenAndRecognizeAugments,
   recognizeAugmentsFromDataUrl,
   terminateOcrWorker
 } from './ocr/augmentOcr'
 import { askCustomLlmAdvisor, computeLocalTacticalAdvice } from './ai/advisorService'
-import type { AiSettings, GameLiveState, UserPreferences } from '@shared/types'
+import type { AiSettings, GameLiveState, PlaystyleMode, UserPreferences } from '@shared/types'
 
 const DEFAULT_SETTINGS: AiSettings = {
   enabled: true,
@@ -33,58 +44,76 @@ const DEFAULT_PREFS: UserPreferences = {
   preferredRoles: [],
   favoriteHeroIds: [],
   overlayOpacity: 'solid',
-  autoOcrOnMilestone: true
+  autoOcrOnMilestone: true,
+  minimizeToTray: true,
+  badgePosition: 'top'
 }
 
 const syncService = new DataSyncService()
 let mainWindow: BrowserWindow | null = null
-let miniWindow: BrowserWindow | null = null
-let miniClickThrough = false
+let hudWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
+
 let lcuWatcher: ReadOnlyLcuWatcher | null = null
 let liveWatcher: ReadOnlyLiveWatcher | null = null
+let hudLoopTimer: NodeJS.Timeout | null = null
 
 let latestLcu: LcuChampSelectSnapshot | null = null
 let latestLive: LiveMatchSnapshot | null = null
 let simulatorActive = false
 
-// Zero-FPS-drop milestone OCR guard: tracks milestones resolved per match
+// Dynamic 3-pick reroll rescan & cursor-column auto-pick tracking
 const resolvedMilestones = new Set<number>()
 const milestoneAttempts = new Map<number, number>()
-let autoOcrRunning = false
-let lastAutoOcrAt = 0
+let ocrBusy = false
+let lastOcrScanAt = 0
+let emptyOfferScans = 0
+let lastHoveredCardSlot: 0 | 1 | 2 = 1
 
 let gameState: GameLiveState = {
   connectionMode: 'disconnected',
+  playstyleMode: 'steady',
   myHeroId: null,
   allyHeroIds: [],
   benchHeroIds: [],
   enemyHeroIds: [],
+  enemyPlayers: [],
   currentLevel: 3,
+  currentGold: 1400,
   isDead: false,
   isAugmentMilestone: false,
   currentItemIds: [],
   pickedAugmentIds: [],
   candidateAugmentIds: [],
+  cardSlots: [],
   lastUpdatedAt: Date.now()
 }
 
 let currentSettings: AiSettings = { ...DEFAULT_SETTINGS }
 let currentPrefs: UserPreferences = { ...DEFAULT_PREFS }
 
+function resolveIconPath(): string {
+  const prod = resolve(process.resourcesPath || '', '../resources/icon.png')
+  if (existsSync(prod)) return prod
+  const dev = resolve(app.getAppPath(), 'resources/icon.png')
+  if (existsSync(dev)) return dev
+  return resolve(process.cwd(), 'resources/icon.png')
+}
+
 function getSettingsPath(): string {
   return join(app.getPath('userData'), 'hexbuddy-settings.json')
 }
 
 function getPrefsPath(): string {
-  return join(app.getPath('userData'), 'hexbuddy-prefs.json')
+  return join(app.getPath('userData'), 'hexbuddy-prefs-v3.json')
 }
 
 async function loadSettingsAndPrefs(): Promise<void> {
   const sp = getSettingsPath()
   if (existsSync(sp)) {
     try {
-      const parsed = JSON.parse(await readFile(sp, 'utf-8')) as Partial<AiSettings>
-      currentSettings = { ...DEFAULT_SETTINGS, ...parsed }
+      currentSettings = { ...DEFAULT_SETTINGS, ...(JSON.parse(await readFile(sp, 'utf-8')) as Partial<AiSettings>) }
     } catch {
       currentSettings = { ...DEFAULT_SETTINGS }
     }
@@ -92,8 +121,7 @@ async function loadSettingsAndPrefs(): Promise<void> {
   const pp = getPrefsPath()
   if (existsSync(pp)) {
     try {
-      const parsed = JSON.parse(await readFile(pp, 'utf-8')) as Partial<UserPreferences>
-      currentPrefs = { ...DEFAULT_PREFS, ...parsed }
+      currentPrefs = { ...DEFAULT_PREFS, ...(JSON.parse(await readFile(pp, 'utf-8')) as Partial<UserPreferences>) }
     } catch {
       currentPrefs = { ...DEFAULT_PREFS }
     }
@@ -114,7 +142,7 @@ async function savePrefs(next: Partial<UserPreferences>): Promise<UserPreference
   const p = getPrefsPath()
   await mkdir(dirname(p), { recursive: true })
   await writeFile(p, JSON.stringify(currentPrefs, null, 2), 'utf-8')
-  for (const win of [mainWindow, miniWindow]) {
+  for (const win of [mainWindow, hudWindow]) {
     if (win && !win.isDestroyed()) {
       win.webContents.send('prefs:updated', currentPrefs)
     }
@@ -124,7 +152,7 @@ async function savePrefs(next: Partial<UserPreferences>): Promise<UserPreference
 
 function broadcastGameState(): void {
   gameState = { ...gameState, lastUpdatedAt: Date.now() }
-  for (const win of [mainWindow, miniWindow]) {
+  for (const win of [mainWindow, hudWindow]) {
     if (win && !win.isDestroyed()) {
       win.webContents.send('game:state-updated', gameState)
     }
@@ -139,48 +167,122 @@ function currentActiveMilestone(level: number): number {
 }
 
 /**
- * 2999 Event-Driven Zero-FPS-Drop Auto OCR:
- * Strictly dormant during alive combat; runs at most 3 gentle checks ONLY during
- * Lv3 fountain start or Lv7/11/15 respawn selection windows!
+ * Handles both:
+ * 1) Initial 3-pick detection at Lv3/7/11/15 fountain window
+ * 2) Live Reroll rescan while 3 cards are open on screen + Cursor-position auto-recording when closed!
  */
-async function maybeTriggerMilestoneAutoOcr(snap: LiveMatchSnapshot): Promise<void> {
-  if (!currentPrefs.autoOcrOnMilestone || autoOcrRunning) return
-  if (gameState.candidateAugmentIds.length >= 2) return
+async function tickSpatialVisionAndCursor(): Promise<void> {
+  // Align HUD window to active League window on Windows if present
+  if (hudWindow && !hudWindow.isDestroyed() && hudWindow.isVisible() && !simulatorActive) {
+    const tracked = await findActiveLeagueWindowBounds()
+    if (tracked) {
+      const cur = hudWindow.getBounds()
+      if (
+        Math.abs(cur.x - tracked.bounds.x) > 2 ||
+        Math.abs(cur.y - tracked.bounds.y) > 2 ||
+        Math.abs(cur.width - tracked.bounds.width) > 2 ||
+        Math.abs(cur.height - tracked.bounds.height) > 2
+      ) {
+        hudWindow.setBounds(tracked.bounds, false)
+      }
+    }
+  }
 
-  const m = currentActiveMilestone(snap.currentLevel)
+  // Track which card column (0=Left, 1=Center, 2=Right) cursor is hovering over while 3-pick is open
+  if (gameState.cardSlots.length > 0 && hudWindow && !hudWindow.isDestroyed()) {
+    const pt = screen.getCursorScreenPoint()
+    const b = hudWindow.getBounds()
+    if (pt.x >= b.x && pt.x <= b.x + b.width && pt.y >= b.y && pt.y <= b.y + b.height) {
+      const rx = (pt.x - b.x) / Math.max(1, b.width)
+      const ry = (pt.y - b.y) / Math.max(1, b.height)
+      if (ry >= 0.2 && ry <= 0.82) {
+        lastHoveredCardSlot = rx < 0.39 ? 0 : rx > 0.61 ? 2 : 1
+      }
+    }
+  }
+
+  if (simulatorActive || !latestLive?.inGame || !currentPrefs.autoOcrOnMilestone || ocrBusy) {
+    return
+  }
+
+  const m = currentActiveMilestone(latestLive.currentLevel)
+  const offerCurrentlyOpen = gameState.cardSlots.length > 0
+
+  if (offerCurrentlyOpen) {
+    // Low-overhead rescan every 1200ms while offer is visible to catch in-game Rerolls & card closure!
+    if (Date.now() - lastOcrScanAt < 1200) return
+    ocrBusy = true
+    lastOcrScanAt = Date.now()
+    try {
+      const bundle = syncService.getBundle()
+      const res = await captureScreenAndRecognizeAugments(bundle.augments)
+      if (res.matchedAugmentIds.length >= 2) {
+        emptyOfferScans = 0
+        const prevKey = gameState.cardSlots.map((c) => c.augmentId).join(',')
+        const nextKey = res.cardSlots.map((c) => c.augmentId).join(',')
+        if (prevKey !== nextKey) {
+          gameState = {
+            ...gameState,
+            candidateAugmentIds: res.matchedAugmentIds,
+            cardSlots: res.cardSlots
+          }
+          broadcastGameState()
+        }
+      } else {
+        emptyOfferScans++
+        if (emptyOfferScans >= 2) {
+          // Player picked a card and the 3-pick screen closed! Auto-record the card under cursor!
+          const chosenSlot =
+            gameState.cardSlots.find((s) => s.slotIndex === lastHoveredCardSlot) ||
+            gameState.cardSlots[0]
+          const chosenId = chosenSlot?.augmentId
+          const nextPicked =
+            chosenId && !gameState.pickedAugmentIds.includes(chosenId)
+              ? [...gameState.pickedAugmentIds, chosenId].slice(-4)
+              : gameState.pickedAugmentIds
+
+          resolvedMilestones.add(m)
+          emptyOfferScans = 0
+          gameState = {
+            ...gameState,
+            pickedAugmentIds: nextPicked,
+            candidateAugmentIds: [],
+            cardSlots: []
+          }
+          broadcastGameState()
+        }
+      }
+    } finally {
+      ocrBusy = false
+    }
+    return
+  }
+
+  // Otherwise, check if we are in a valid fountain selection window to detect a newly opened 3-pick
   if (resolvedMilestones.has(m)) return
-
-  const isEligibleWindow = m === 3 || snap.isDead
-  if (!isEligibleWindow) return
-
+  if (!(m === 3 || latestLive.isDead)) return
   const tries = milestoneAttempts.get(m) ?? 0
-  if (tries >= 3) return
-  if (Date.now() - lastAutoOcrAt < 3800) return
+  if (tries >= 5) return
+  if (Date.now() - lastOcrScanAt < 3200) return
 
-  autoOcrRunning = true
-  lastAutoOcrAt = Date.now()
+  ocrBusy = true
+  lastOcrScanAt = Date.now()
   milestoneAttempts.set(m, tries + 1)
-
   try {
     const bundle = syncService.getBundle()
     const res = await captureScreenAndRecognizeAugments(bundle.augments)
     if (res.matchedAugmentIds.length >= 2) {
-      resolvedMilestones.add(m)
+      emptyOfferScans = 0
+      toggleSpatialHud(true)
       gameState = {
         ...gameState,
-        candidateAugmentIds: res.matchedAugmentIds
+        candidateAugmentIds: res.matchedAugmentIds,
+        cardSlots: res.cardSlots
       }
-      toggleMiniOverlay(true)
-      resizeMiniOverlay(false)
       broadcastGameState()
-      for (const win of [mainWindow, miniWindow]) {
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('ocr:result', res)
-        }
-      }
     }
   } finally {
-    autoOcrRunning = false
+    ocrBusy = false
   }
 }
 
@@ -188,6 +290,7 @@ function recomputeRealGameState(): void {
   if (simulatorActive) return
 
   if (latestLive?.inGame) {
+    toggleSpatialHud(true)
     gameState = {
       ...gameState,
       connectionMode: 'live-in-game',
@@ -196,16 +299,17 @@ function recomputeRealGameState(): void {
       allyHeroIds: latestLive.allyHeroIds,
       benchHeroIds: [],
       enemyHeroIds: latestLive.enemyHeroIds,
+      enemyPlayers: latestLive.enemyPlayers,
       currentLevel: latestLive.currentLevel,
+      currentGold: latestLive.currentGold,
       isDead: latestLive.isDead,
       isAugmentMilestone: latestLive.isAugmentMilestone,
       currentItemIds: latestLive.currentItemIds
     }
-    maybeTriggerMilestoneAutoOcr(latestLive).catch(() => {})
   } else if (latestLcu?.inChampSelect) {
-    // Reset per-match milestone tracker when entering a fresh champ select
     resolvedMilestones.clear()
     milestoneAttempts.clear()
+    toggleSpatialHud(true)
     gameState = {
       ...gameState,
       connectionMode: 'lcu-champ-select',
@@ -214,10 +318,15 @@ function recomputeRealGameState(): void {
       allyHeroIds: latestLcu.allyHeroIds,
       benchHeroIds: latestLcu.benchHeroIds,
       enemyHeroIds: [],
+      enemyPlayers: [],
       currentLevel: 3,
+      currentGold: 1400,
       isDead: false,
       isAugmentMilestone: false,
-      currentItemIds: []
+      currentItemIds: [],
+      pickedAugmentIds: [],
+      candidateAugmentIds: [],
+      cardSlots: []
     }
   } else {
     gameState = {
@@ -225,6 +334,7 @@ function recomputeRealGameState(): void {
       connectionMode: 'disconnected',
       simulatorScene: undefined,
       benchHeroIds: [],
+      cardSlots: [],
       isDead: false
     }
   }
@@ -241,12 +351,13 @@ function resolveRendererUrl(hash = ''): { isUrl: boolean; target: string } {
 
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1340,
-    height: 870,
-    minWidth: 1040,
-    minHeight: 700,
+    width: 1240,
+    height: 820,
+    minWidth: 980,
+    minHeight: 660,
     backgroundColor: '#070B12',
-    title: 'HexBuddy · 海斗军师',
+    icon: resolveIconPath(),
+    title: 'HexBuddy · 海斗攻略图鉴',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -261,83 +372,106 @@ function createMainWindow(): void {
   })
 
   const r = resolveRendererUrl()
-  if (r.isUrl) {
-    mainWindow.loadURL(r.target)
-  } else {
-    mainWindow.loadFile(r.target)
-  }
+  if (r.isUrl) mainWindow.loadURL(r.target)
+  else mainWindow.loadFile(r.target)
+
+  mainWindow.on('close', (e) => {
+    if (!isQuitting && currentPrefs.minimizeToTray) {
+      e.preventDefault()
+      mainWindow?.hide()
+    }
+  })
 
   mainWindow.on('closed', () => {
     mainWindow = null
   })
 }
 
-function setMiniClickThroughState(ignore: boolean, tempHover = false): boolean {
-  if (!tempHover) {
-    miniClickThrough = ignore
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow()
+    return
   }
-  if (miniWindow && !miniWindow.isDestroyed()) {
-    miniWindow.setIgnoreMouseEvents(ignore, { forward: true })
-    if (!tempHover) {
-      miniWindow.webContents.send('mini:click-through-changed', miniClickThrough)
-    }
-  }
-  return miniClickThrough
+  mainWindow.show()
+  mainWindow.focus()
 }
 
-function resizeMiniOverlay(collapsed: boolean): void {
-  if (!miniWindow || miniWindow.isDestroyed()) return
-  const [x, y] = miniWindow.getPosition()
-  if (collapsed) {
-    miniWindow.setMinimumSize(320, 48)
-    miniWindow.setSize(400, 50, false)
-    miniWindow.setPosition(x, y, false)
-  } else {
-    miniWindow.setMinimumSize(380, 420)
-    miniWindow.setSize(440, 590, false)
-    miniWindow.setPosition(x, y, false)
+function createSystemTray(): void {
+  try {
+    const iconImg = nativeImage
+      .createFromPath(resolveIconPath())
+      .resize({ width: 18, height: 18 })
+    tray = new Tray(iconImg)
+    tray.setToolTip('HexBuddy · 海克斯大乱斗原位 HUD 助手')
+
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: '打开海斗攻略图鉴 (主窗口)',
+        click: () => showMainWindow()
+      },
+      {
+        label: '显示/隐藏局内原位 HUD (Alt+H)',
+        click: () => toggleSpatialHud()
+      },
+      {
+        label: '手动识别当前三选一 (Alt+S)',
+        click: () => triggerManualHudOcr()
+      },
+      { type: 'separator' },
+      {
+        label: '彻底退出 HexBuddy',
+        click: () => {
+          isQuitting = true
+          app.quit()
+        }
+      }
+    ])
+
+    tray.setContextMenu(contextMenu)
+    tray.on('double-click', () => showMainWindow())
+  } catch (err) {
+    console.warn('[Tray] Failed to create tray:', err)
   }
 }
 
-function toggleMiniOverlay(forceShow?: boolean): boolean {
-  if (miniWindow && !miniWindow.isDestroyed()) {
-    // Pressing Alt+H while click-through is locked unlocks interaction first so user is never stuck!
-    if (miniClickThrough && forceShow === undefined) {
-      setMiniClickThroughState(false)
-      miniWindow.show()
-      return true
-    }
+function toggleSpatialHud(forceShow?: boolean): boolean {
+  if (hudWindow && !hudWindow.isDestroyed()) {
     if (forceShow === true) {
-      miniWindow.show()
+      hudWindow.showInactive()
       return true
     }
-    if (miniWindow.isVisible()) {
-      miniWindow.hide()
+    if (forceShow === false) {
+      hudWindow.hide()
       return false
     }
-    miniWindow.show()
+    if (hudWindow.isVisible()) {
+      hudWindow.hide()
+      return false
+    }
+    hudWindow.showInactive()
     return true
   }
 
   if (forceShow === false) return false
 
   const display = screen.getPrimaryDisplay()
-  const { width } = display.workAreaSize
+  const bounds = display.bounds
 
-  miniWindow = new BrowserWindow({
-    width: 440,
-    height: 590,
-    x: Math.max(20, width - 460),
-    y: 56,
-    minWidth: 320,
-    minHeight: 48,
+  hudWindow = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
-    resizable: true,
-    hasShadow: true,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    hasShadow: false,
     backgroundColor: '#00000000',
-    title: 'HexBuddy 局内悬浮窗',
+    title: 'HexBuddy Spatial HUD',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -345,19 +479,38 @@ function toggleMiniOverlay(forceShow?: boolean): boolean {
     }
   })
 
-  miniWindow.setAlwaysOnTop(true, 'screen-saver')
-  const r = resolveRendererUrl('mini')
-  if (r.isUrl) {
-    miniWindow.loadURL(r.target)
-  } else {
-    miniWindow.loadFile(r.target, { hash: 'mini' })
-  }
+  hudWindow.setAlwaysOnTop(true, 'screen-saver')
+  // 100% click-through into League of Legends by default, forwarding mousemove so top pill can detect hover!
+  hudWindow.setIgnoreMouseEvents(true, { forward: true })
 
-  miniWindow.on('closed', () => {
-    miniWindow = null
-    miniClickThrough = false
+  const r = resolveRendererUrl('mini')
+  if (r.isUrl) hudWindow.loadURL(r.target)
+  else hudWindow.loadFile(r.target, { hash: 'mini' })
+
+  hudWindow.on('closed', () => {
+    hudWindow = null
   })
   return true
+}
+
+async function triggerManualHudOcr(): Promise<void> {
+  toggleSpatialHud(true)
+  const bundle = syncService.getBundle()
+  const result = await captureScreenAndRecognizeAugments(bundle.augments)
+  if (result.matchedAugmentIds.length > 0) {
+    emptyOfferScans = 0
+    gameState = {
+      ...gameState,
+      candidateAugmentIds: result.matchedAugmentIds,
+      cardSlots: result.cardSlots
+    }
+    broadcastGameState()
+  }
+  for (const win of [mainWindow, hudWindow]) {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('ocr:result', result)
+    }
+  }
 }
 
 function registerShortcuts(): void {
@@ -365,36 +518,21 @@ function registerShortcuts(): void {
   try {
     if (currentSettings.shortcutOverlay) {
       globalShortcut.register(currentSettings.shortcutOverlay, () => {
-        toggleMiniOverlay()
+        toggleSpatialHud()
       })
     }
   } catch (err) {
-    console.warn('[Shortcut] Overlay shortcut register failed:', err)
+    console.warn('[Shortcut] HUD shortcut failed:', err)
   }
 
   try {
     if (currentSettings.shortcutOcr) {
-      globalShortcut.register(currentSettings.shortcutOcr, async () => {
-        toggleMiniOverlay(true)
-        resizeMiniOverlay(false)
-        const bundle = syncService.getBundle()
-        const result = await captureScreenAndRecognizeAugments(bundle.augments)
-        if (result.matchedAugmentIds.length > 0) {
-          gameState = {
-            ...gameState,
-            candidateAugmentIds: result.matchedAugmentIds
-          }
-          broadcastGameState()
-        }
-        for (const win of [mainWindow, miniWindow]) {
-          if (win && !win.isDestroyed()) {
-            win.webContents.send('ocr:result', result)
-          }
-        }
+      globalShortcut.register(currentSettings.shortcutOcr, () => {
+        triggerManualHudOcr()
       })
     }
   } catch (err) {
-    console.warn('[Shortcut] OCR shortcut register failed:', err)
+    console.warn('[Shortcut] OCR shortcut failed:', err)
   }
 }
 
@@ -409,7 +547,7 @@ function setupIpcHandlers(): void {
       gameState,
       settings: currentSettings,
       prefs: currentPrefs,
-      miniClickThrough
+      miniClickThrough: true
     }
   })
 
@@ -448,18 +586,43 @@ function setupIpcHandlers(): void {
 
   ipcMain.handle(
     'game:set-simulator',
-    (_, scene: 'off' | 'champ-select' | 'level-7-pick' | 'teamfight-5v5') => {
+    (_, scene: 'off' | 'champ-select' | 'level-7-pick' | 'fountain-buy') => {
       if (scene === 'off') {
         simulatorActive = false
         recomputeRealGameState()
         return gameState
       }
       simulatorActive = true
-      gameState = createSimulatorScene(scene, syncService.getBundle())
+      toggleSpatialHud(true)
+      gameState = createSimulatorScene(scene, syncService.getBundle(), gameState.playstyleMode)
       broadcastGameState()
       return gameState
     }
   )
+
+  ipcMain.handle('game:set-playstyle', (_, mode: PlaystyleMode) => {
+    gameState = { ...gameState, playstyleMode: mode }
+    broadcastGameState()
+    return gameState
+  })
+
+  ipcMain.handle('game:reroll-sim-slot', (_, slotIndex: 0 | 1 | 2) => {
+    const bundle = syncService.getBundle()
+    const pool = Object.values(bundle.augments).filter(
+      (a) => a.rarity === 'prismatic' && !gameState.candidateAugmentIds.includes(a.id)
+    )
+    const randomPick = pool[Math.floor(Math.random() * pool.length)]
+    if (!randomPick) return gameState
+    const nextCands = [...gameState.candidateAugmentIds]
+    nextCands[slotIndex] = randomPick.id
+    gameState = {
+      ...gameState,
+      candidateAugmentIds: nextCands,
+      cardSlots: makeDefaultCardSlots(nextCands)
+    }
+    broadcastGameState()
+    return gameState
+  })
 
   ipcMain.handle(
     'game:update-augments',
@@ -471,14 +634,20 @@ function setupIpcHandlers(): void {
         myHeroId?: string | null
       }
     ) => {
+      const nextCands =
+        payload.candidateAugmentIds !== undefined
+          ? payload.candidateAugmentIds.slice(0, 3)
+          : gameState.candidateAugmentIds
       gameState = {
         ...gameState,
         ...(payload.pickedAugmentIds !== undefined
           ? { pickedAugmentIds: payload.pickedAugmentIds.slice(0, 4) }
           : {}),
-        ...(payload.candidateAugmentIds !== undefined
-          ? { candidateAugmentIds: payload.candidateAugmentIds.slice(0, 3) }
-          : {}),
+        candidateAugmentIds: nextCands,
+        cardSlots:
+          payload.candidateAugmentIds !== undefined
+            ? makeDefaultCardSlots(nextCands)
+            : gameState.cardSlots,
         ...(payload.myHeroId !== undefined ? { myHeroId: payload.myHeroId } : {})
       }
       broadcastGameState()
@@ -490,8 +659,11 @@ function setupIpcHandlers(): void {
     const bundle = syncService.getBundle()
     const res = await captureScreenAndRecognizeAugments(bundle.augments)
     if (res.matchedAugmentIds.length > 0) {
-      resizeMiniOverlay(false)
-      gameState = { ...gameState, candidateAugmentIds: res.matchedAugmentIds }
+      gameState = {
+        ...gameState,
+        candidateAugmentIds: res.matchedAugmentIds,
+        cardSlots: res.cardSlots
+      }
       broadcastGameState()
     }
     return res
@@ -501,7 +673,11 @@ function setupIpcHandlers(): void {
     const bundle = syncService.getBundle()
     const res = await recognizeAugmentsFromDataUrl(imageDataUrl, bundle.augments)
     if (res.matchedAugmentIds.length > 0) {
-      gameState = { ...gameState, candidateAugmentIds: res.matchedAugmentIds }
+      gameState = {
+        ...gameState,
+        candidateAugmentIds: res.matchedAugmentIds,
+        cardSlots: res.cardSlots
+      }
       broadcastGameState()
     }
     return res
@@ -530,19 +706,18 @@ function setupIpcHandlers(): void {
   })
 
   ipcMain.handle('window:toggle-mini', (_, forceShow?: boolean) => {
-    return toggleMiniOverlay(forceShow)
+    return toggleSpatialHud(forceShow)
   })
 
-  ipcMain.handle('window:resize-mini', (_, collapsed: boolean) => {
-    resizeMiniOverlay(collapsed)
+  ipcMain.handle('window:show-main', () => {
+    showMainWindow()
   })
 
-  ipcMain.handle(
-    'window:set-mini-click-through',
-    (_, ignore: boolean, tempHover?: boolean) => {
-      return setMiniClickThroughState(ignore, Boolean(tempHover))
+  ipcMain.handle('window:set-hud-interactive', (_, interactive: boolean) => {
+    if (hudWindow && !hudWindow.isDestroyed()) {
+      hudWindow.setIgnoreMouseEvents(!interactive, { forward: true })
     }
-  )
+  })
 
   ipcMain.handle('window:open-external', (_, url: string) => {
     if (/^https?:\/\//i.test(url)) {
@@ -555,6 +730,7 @@ app.whenReady().then(async () => {
   await loadSettingsAndPrefs()
   await syncService.init()
   setupIpcHandlers()
+  createSystemTray()
   createMainWindow()
   registerShortcuts()
 
@@ -572,22 +748,33 @@ app.whenReady().then(async () => {
   lcuWatcher.start()
   liveWatcher.start()
 
+  hudLoopTimer = setInterval(() => {
+    tickSpatialVisionAndCursor().catch(() => {})
+  }, 300)
+
   syncService.checkAndSync(false).catch(() => {})
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+    showMainWindow()
   })
 })
 
+app.on('before-quit', () => {
+  isQuitting = true
+})
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  // Keep background Tray & Spatial HUD alive unless explicitly quitting
+  if (isQuitting && process.platform !== 'darwin') {
     app.quit()
   }
 })
 
 app.on('will-quit', async () => {
   globalShortcut.unregisterAll()
+  if (hudLoopTimer) clearInterval(hudLoopTimer)
   lcuWatcher?.stop()
   liveWatcher?.stop()
+  tray?.destroy()
   await terminateOcrWorker()
 })

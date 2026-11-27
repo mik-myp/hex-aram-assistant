@@ -439,7 +439,7 @@ export function computeBenchSuggestions(
   const tankCount = allyHeroes.filter((h) => h.roles.includes('tank')).length
 
   return benchHeroIds
-    .map((id) => {
+    .map((id, benchIndex) => {
       const h = bundle.heroes[id]
       if (!h) return null
       const delta = h.smoothedWinRate - myWr
@@ -450,26 +450,38 @@ export function computeBenchSuggestions(
         MAYHEM_DIVIDEND_HERO_IDS.has(id) || (h.tier === 'T0' && h.smoothedWinRate >= 0.545)
 
       const reasons: string[] = []
-      if (isFavorite) reasons.push('★ 你的本命收藏英雄')
-      if (isMayhemBonusHero) reasons.push('海斗版本红利战神')
-      else if (h.tier === 'T0' || h.tier === 'T1') reasons.push(`版本 ${h.tier} 强势`)
+      let shortTag = `${h.tier}`
+      if (isFavorite) {
+        reasons.push('★ 本命收藏')
+        shortTag = '★ 本命必拿'
+      }
+      if (isMayhemBonusHero) {
+        reasons.push('海斗版本红利')
+        if (!isFavorite) shortTag = '👑 海斗战神'
+      } else if (h.tier === 'T0' || h.tier === 'T1') {
+        reasons.push(`版本 ${h.tier}`)
+        if (!isFavorite) shortTag = `${h.tier} 强势`
+      }
 
-      if (matchesPreferredRole) reasons.push('契合你常玩定位')
+      if (matchesPreferredRole) reasons.push('常玩定位')
 
       let compBonus = 0
       if (tankCount === 0 && h.roles.includes('tank')) {
-        reasons.push('补足我方缺失前排')
+        reasons.push('补前排')
+        if (shortTag === h.tier) shortTag = '补关键前排'
         compBonus += 0.015
       } else if (apCount >= 3 && h.damageType === 'AD') {
-        reasons.push('全队偏 AP，补关键 AD 伤害')
+        reasons.push('缺AD补伤')
+        if (shortTag === h.tier) shortTag = '补关键AD'
         compBonus += 0.015
       } else if (adCount >= 3 && h.damageType === 'AP') {
-        reasons.push('全队菜刀队，补关键 AP 伤害')
+        reasons.push('菜刀补AP')
+        if (shortTag === h.tier) shortTag = '补关键AP'
         compBonus += 0.015
       }
 
       if (reasons.length === 0) {
-        reasons.push(`国服胜率 ${(h.smoothedWinRate * 100).toFixed(1)}%`)
+        reasons.push(`胜率 ${(h.smoothedWinRate * 100).toFixed(1)}%`)
       }
 
       const score =
@@ -480,6 +492,7 @@ export function computeBenchSuggestions(
 
       return {
         heroId: id,
+        benchIndex,
         tier: h.tier,
         winRate: h.smoothedWinRate,
         deltaVsCurrent: Number(delta.toFixed(4)),
@@ -487,9 +500,9 @@ export function computeBenchSuggestions(
         matchesPreferredRole,
         isMayhemBonusHero,
         score: Number(score.toFixed(4)),
+        shortTag,
         reason: reasons.join(' · ')
       }
     })
     .filter((x): x is BenchSuggestion => x !== null)
-    .sort((a, b) => b.score - a.score)
 }

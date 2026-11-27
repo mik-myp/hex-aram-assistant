@@ -1,14 +1,37 @@
 import React, { useState } from 'react'
-import { Check, ExternalLink, KeyRound, Keyboard, ScanEye, Shield, X } from 'lucide-react'
-import type { AiSettings, DatasetMetadata, UserPreferences } from '@shared/types'
+import {
+  Check,
+  Database,
+  ExternalLink,
+  KeyRound,
+  Keyboard,
+  RefreshCw,
+  ScanEye,
+  Shield,
+  Users,
+  X
+} from 'lucide-react'
+import type { AiSettings, DatasetMetadata, HeroRole, UserPreferences } from '@shared/types'
 
 interface SettingsModalProps {
   settings: AiSettings
   prefs: UserPreferences
   meta: DatasetMetadata
+  syncing: boolean
+  onSwitchDataset: (path: string, band: 'all' | 'high') => void
+  onSyncNow: () => void
   onClose: () => void
   onSave: (nextSettings: AiSettings, nextPrefs: Partial<UserPreferences>) => Promise<void>
 }
+
+const ROLE_OPTIONS: Array<{ key: HeroRole; label: string }> = [
+  { key: 'mage', label: '法师' },
+  { key: 'marksman', label: '射手' },
+  { key: 'fighter', label: '战士' },
+  { key: 'tank', label: '坦克' },
+  { key: 'assassin', label: '刺客' },
+  { key: 'support', label: '辅助' }
+]
 
 const PROVIDER_PRESETS = [
   {
@@ -37,99 +60,223 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   prefs,
   meta,
+  syncing,
+  onSwitchDataset,
+  onSyncNow,
   onClose,
   onSave
 }) => {
   const [form, setForm] = useState<AiSettings>({ ...settings })
   const [autoOcr, setAutoOcr] = useState<boolean>(prefs.autoOcrOnMilestone)
+  const [minimizeToTray, setMinimizeToTray] = useState<boolean>(prefs.minimizeToTray)
+  const [badgePosition, setBadgePosition] = useState<'top' | 'bottom'>(prefs.badgePosition || 'top')
+  const [preferredRoles, setPreferredRoles] = useState<HeroRole[]>(prefs.preferredRoles || [])
   const [saved, setSaved] = useState(false)
+
+  const currentDatasetPath =
+    meta.availableDatasets?.find((d) => d.patch === meta.patch && d.mode === meta.mode)?.path ||
+    `patches/${meta.patch}/${meta.mode}`
+
+  const toggleRole = (r: HeroRole): void => {
+    setPreferredRoles((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]))
+  }
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
-    await onSave(form, { autoOcrOnMilestone: autoOcr })
+    await onSave(form, {
+      autoOcrOnMilestone: autoOcr,
+      minimizeToTray,
+      badgePosition,
+      preferredRoles
+    })
     setSaved(true)
     setTimeout(() => {
       setSaved(false)
       onClose()
-    }, 500)
+    }, 450)
   }
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
       <div className="hex-panel w-full max-w-xl rounded-lg overflow-hidden shadow-2xl">
         <div className="px-5 py-3.5 border-b border-[#C8AA6E]/25 flex items-center justify-between bg-[#090F1A]">
-          <h2 className="text-base font-semibold text-[#F0E6D2]">助手设置与大模型军师配置</h2>
-          <button
-            onClick={onClose}
-            className="p-1 text-[#94A3B8] hover:text-[#F0E6D2] cursor-pointer"
-          >
+          <h2 className="text-base font-semibold text-[#F0E6D2]">原位 HUD、数据口径与助手设置</h2>
+          <button onClick={onClose} className="p-1 text-[#94A3B8] hover:text-[#F0E6D2] cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-5 text-sm max-h-[80vh] overflow-y-auto">
-          {/* Smart 2999 Auto OCR */}
-          <section className="space-y-2">
+        <form onSubmit={handleSubmit} className="p-5 space-y-5 text-sm max-h-[82vh] overflow-y-auto">
+          {/* 1. HUD & Tray Behavior */}
+          <section className="space-y-2.5">
             <div className="flex items-center gap-2 text-[#E2C992] font-medium">
               <ScanEye className="w-4 h-4" />
-              <span>零掉帧智能识屏设置</span>
+              <span>原位 HUD 与系统托盘行为</span>
             </div>
-            <label className="flex items-start gap-2.5 p-3 rounded bg-[#111B2C] border border-[#C8AA6E]/25 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoOcr}
-                onChange={(e) => setAutoOcr(e.target.checked)}
-                className="mt-0.5 accent-[#0AC8B9]"
-              />
-              <div className="text-xs space-y-0.5">
-                <div className="font-semibold text-[#F0E6D2]">
-                  开启 2999 事件驱动「选卡窗口期」自动识屏
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
+              <label className="flex items-start gap-2 p-2.5 rounded bg-[#111B2C] border border-[#C8AA6E]/20 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={minimizeToTray}
+                  onChange={(e) => setMinimizeToTray(e.target.checked)}
+                  className="mt-0.5 accent-[#0AC8B9]"
+                />
+                <div>
+                  <div className="font-semibold text-[#F0E6D2]">关闭主窗口时最小化至托盘</div>
+                  <p className="text-[#94A3B8] mt-0.5">后台继续保持选人与局内原位 HUD 工作</p>
                 </div>
-                <p className="text-[#94A3B8]">
-                  平时存活团战时 0 截屏绝对不掉帧；仅在开局 3 级或达到 7 / 11 / 15 级阵亡回泉水时自动检测屏幕三选一并弹出悬浮推荐。
-                </p>
+              </label>
+
+              <label className="flex items-start gap-2 p-2.5 rounded bg-[#111B2C] border border-[#C8AA6E]/20 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoOcr}
+                  onChange={(e) => setAutoOcr(e.target.checked)}
+                  className="mt-0.5 accent-[#0AC8B9]"
+                />
+                <div>
+                  <div className="font-semibold text-[#F0E6D2]">选卡期自动识屏 + 刷新跟随</div>
+                  <p className="text-[#94A3B8] mt-0.5">存活打架 0 截屏；选卡时自动贴标并自动记槽</p>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between p-2.5 rounded bg-[#111B2C] border border-[#C8AA6E]/20 text-xs">
+              <span className="text-[#C8C1B2]">局内三选一原位贴标位置：</span>
+              <div className="flex gap-1.5">
+                {(
+                  [
+                    { key: 'top', label: '海克斯卡片正上方（默认）' },
+                    { key: 'bottom', label: '海克斯卡片正下方' }
+                  ] as const
+                ).map((pos) => (
+                  <button
+                    type="button"
+                    key={pos.key}
+                    onClick={() => setBadgePosition(pos.key)}
+                    className={`px-2.5 py-1 rounded cursor-pointer ${
+                      badgePosition === pos.key
+                        ? 'bg-[#C8AA6E] text-[#070B12] font-semibold'
+                        : 'bg-[#0B1220] text-[#94A3B8]'
+                    }`}
+                  >
+                    {pos.label}
+                  </button>
+                ))}
               </div>
-            </label>
+            </div>
           </section>
 
-          {/* Shortcuts */}
-          <section className="space-y-2.5 pt-2 border-t border-[#C8AA6E]/15">
+          {/* 2. Preferred Roles for Champ Select Bench HUD */}
+          <section className="space-y-2 pt-2 border-t border-[#C8AA6E]/15">
+            <div className="flex items-center gap-2 text-[#E2C992] font-medium">
+              <Users className="w-4 h-4" />
+              <span>选人替补席 · 我的常玩定位加权</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {ROLE_OPTIONS.map((ro) => {
+                const active = preferredRoles.includes(ro.key)
+                return (
+                  <button
+                    type="button"
+                    key={ro.key}
+                    onClick={() => toggleRole(ro.key)}
+                    className={`px-3 py-1 rounded text-xs border cursor-pointer transition ${
+                      active
+                        ? 'bg-[#C8AA6E] text-[#070B12] border-[#C8AA6E] font-semibold'
+                        : 'bg-[#141F30] text-[#94A3B8] border-[#C8AA6E]/25 hover:text-[#F0E6D2]'
+                    }`}
+                  >
+                    {ro.label}
+                  </button>
+                )
+              })}
+            </div>
+          </section>
+
+          {/* 3. Dataset Mode & Hot Sync */}
+          <section className="space-y-2 pt-2 border-t border-[#C8AA6E]/15">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[#E2C992] font-medium">
+                <Database className="w-4 h-4" />
+                <span>数据模式与分段口径</span>
+              </div>
+              <button
+                type="button"
+                onClick={onSyncNow}
+                disabled={syncing}
+                className="px-2.5 py-1 rounded text-xs bg-[#141F30] hover:bg-[#1B2B44] border border-[#C8AA6E]/30 text-[#C8C1B2] flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 text-[#C8AA6E] ${syncing ? 'animate-spin' : ''}`} />
+                <span>检查统计数据热更</span>
+              </button>
+            </div>
+
+            {meta.availableDatasets && meta.availableDatasets.length > 0 && (
+              <div className="flex items-center gap-2 text-xs">
+                <select
+                  value={currentDatasetPath}
+                  onChange={(e) => onSwitchDataset(e.target.value, 'all')}
+                  className="flex-1 px-3 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2]"
+                >
+                  {meta.availableDatasets.map((ds) => (
+                    <option key={ds.path} value={ds.path}>
+                      {ds.patch} 版本 · {ds.modeLabel}
+                    </option>
+                  ))}
+                </select>
+
+                {meta.bandsAvailable && (
+                  <div className="flex gap-1">
+                    {(['all', 'high'] as const).map((b) => (
+                      <button
+                        type="button"
+                        key={b}
+                        onClick={() => onSwitchDataset(currentDatasetPath, b)}
+                        className={`px-2.5 py-1.5 rounded border cursor-pointer ${
+                          meta.activeBand === b
+                            ? 'bg-[#0AC8B9]/25 text-[#5CF2E5] border-[#0AC8B9]'
+                            : 'bg-[#141F30] text-[#94A3B8] border-white/10'
+                        }`}
+                      >
+                        {b === 'all' ? '全体样本' : '前5%高玩'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* 4. Shortcuts & LLM */}
+          <section className="space-y-3 pt-2 border-t border-[#C8AA6E]/15">
             <div className="flex items-center gap-2 text-[#E2C992] font-medium">
               <Keyboard className="w-4 h-4" />
-              <span>局内全局快捷键</span>
+              <span>全局快捷键与可选 AI 锦囊接口</span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block space-y-1">
-                <span className="text-xs text-[#94A3B8]">呼出/隐藏悬浮窗（若已穿透则先解锁）</span>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <label className="space-y-1">
+                <span className="text-[#94A3B8]">显示/隐藏原位 HUD</span>
                 <input
                   value={form.shortcutOverlay}
                   onChange={(e) => setForm({ ...form, shortcutOverlay: e.target.value })}
-                  placeholder="例如 Alt+H"
-                  className="w-full px-3 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2] text-xs focus:outline-none focus:border-[#C8AA6E]"
+                  className="w-full px-3 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2]"
                 />
               </label>
-              <label className="block space-y-1">
-                <span className="text-xs text-[#94A3B8]">手动一键截屏 OCR 识别三选一</span>
+              <label className="space-y-1">
+                <span className="text-[#94A3B8]">手动重识三选一卡片</span>
                 <input
                   value={form.shortcutOcr}
                   onChange={(e) => setForm({ ...form, shortcutOcr: e.target.value })}
-                  placeholder="例如 Alt+S"
-                  className="w-full px-3 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2] text-xs focus:outline-none focus:border-[#C8AA6E]"
+                  className="w-full px-3 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2]"
                 />
               </label>
             </div>
-          </section>
 
-          {/* LLM Config */}
-          <section className="space-y-3 pt-2 border-t border-[#C8AA6E]/15">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-[#E2C992] font-medium">
-                <KeyRound className="w-4 h-4" />
-                <span>进阶大模型 API（供主窗口对话 & 悬浮窗 80 字锦囊使用）</span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              <KeyRound className="w-3.5 h-3.5 text-[#C8AA6E] mt-1 mr-1" />
               {PROVIDER_PRESETS.map((p) => (
                 <button
                   type="button"
@@ -143,85 +290,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       apiKey: p.name.includes('Ollama') && !form.apiKey ? 'ollama' : form.apiKey
                     })
                   }
-                  className="px-2.5 py-1 rounded text-xs bg-[#141F30] hover:bg-[#1B2A42] border border-[#C8AA6E]/25 text-[#C8C1B2] hover:text-[#F0E6D2] cursor-pointer transition"
+                  className="px-2 py-1 rounded text-xs bg-[#141F30] hover:bg-[#1B2A42] border border-[#C8AA6E]/25 text-[#C8C1B2] cursor-pointer"
                 >
-                  填入 {p.name}
+                  {p.name}
                 </button>
               ))}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block space-y-1 col-span-2">
-                <span className="text-xs text-[#94A3B8]">接口地址 (Base URL)</span>
-                <input
-                  value={form.baseUrl}
-                  onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
-                  placeholder="https://api.deepseek.com/v1"
-                  className="w-full px-3 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2] text-xs focus:outline-none focus:border-[#C8AA6E]"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs text-[#94A3B8]">模型名称 (Model)</span>
-                <input
-                  value={form.model}
-                  onChange={(e) => setForm({ ...form, model: e.target.value })}
-                  placeholder="deepseek-chat"
-                  className="w-full px-3 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2] text-xs focus:outline-none focus:border-[#C8AA6E]"
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-xs text-[#94A3B8]">API Key（仅保存在本机磁盘）</span>
-                <input
-                  type="password"
-                  value={form.apiKey}
-                  onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                  placeholder="sk-..."
-                  className="w-full px-3 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2] text-xs focus:outline-none focus:border-[#C8AA6E]"
-                />
-              </label>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <input
+                value={form.baseUrl}
+                onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+                placeholder="Base URL"
+                className="px-2.5 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2]"
+              />
+              <input
+                value={form.model}
+                onChange={(e) => setForm({ ...form, model: e.target.value })}
+                placeholder="Model"
+                className="px-2.5 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2]"
+              />
+              <input
+                type="password"
+                value={form.apiKey}
+                onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                placeholder="API Key (选填)"
+                className="px-2.5 py-1.5 rounded bg-[#141F30] border border-[#C8AA6E]/30 text-[#F0E6D2]"
+              />
             </div>
           </section>
 
-          {/* Data attribution */}
-          <section className="p-3 rounded bg-[#090E17] border border-[#C8AA6E]/20 text-xs text-[#94A3B8] space-y-1.5">
-            <div className="flex items-center gap-1.5 text-[#C8C1B2] font-medium">
+          {/* Attribution */}
+          <section className="p-3 rounded bg-[#090E17] border border-[#C8AA6E]/20 text-xs text-[#94A3B8] flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5">
               <Shield className="w-3.5 h-3.5 text-[#0AC8B9]" />
-              <span>数据口径与开源合规声明</span>
-            </div>
-            <p>
-              当前统计包：版本 <strong className="text-[#F0E6D2]">{meta.patch}</strong> ·{' '}
-              <strong className="text-[#E2C992]">{meta.modeLabel}</strong>（有效样本{' '}
-              <strong className="text-[#F0E6D2] tabular-nums">
-                {meta.matchesValid.toLocaleString()}
-              </strong>{' '}
-              场对局）。
-            </p>
-            <p className="flex items-center gap-2 flex-wrap">
-              <span>
-                统计数据源遵循 <strong>CC BY-NC 4.0（署名-非商业性使用）</strong> 协议：
-              </span>
-              <button
-                type="button"
-                onClick={() => window.hexbuddy.openExternal(meta.sourceRepo)}
-                className="inline-flex items-center gap-1 text-[#C8AA6E] hover:underline cursor-pointer"
-              >
-                github.com/czgreat/aramhex-data
-                <ExternalLink className="w-3 h-3" />
-              </button>
-            </p>
+              当前 {meta.patch} · {meta.modeLabel}（{meta.matchesValid.toLocaleString()} 场对局 · CC BY-NC 4.0）
+            </span>
+            <button
+              type="button"
+              onClick={() => window.hexbuddy.openExternal(meta.sourceRepo)}
+              className="inline-flex items-center gap-1 text-[#C8AA6E] hover:underline cursor-pointer shrink-0"
+            >
+              aramhex-data
+              <ExternalLink className="w-3 h-3" />
+            </button>
           </section>
 
-          <div className="flex justify-end gap-2 pt-1">
+          <div className="flex justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-1.5 rounded text-xs bg-[#141F30] text-[#C8C1B2] hover:text-[#F0E6D2] cursor-pointer"
+              className="px-4 py-1.5 rounded text-xs bg-[#141F30] text-[#C8C1B2] cursor-pointer"
             >
               取消
             </button>
             <button
               type="submit"
-              className="px-4 py-1.5 rounded text-xs font-semibold bg-[#C8AA6E] hover:bg-[#E2C992] text-[#070B12] flex items-center gap-1.5 cursor-pointer transition"
+              className="px-4 py-1.5 rounded text-xs font-semibold bg-[#C8AA6E] hover:bg-[#E2C992] text-[#070B12] flex items-center gap-1.5 cursor-pointer"
             >
               {saved ? <Check className="w-3.5 h-3.5" /> : null}
               <span>{saved ? '已保存' : '保存设置'}</span>

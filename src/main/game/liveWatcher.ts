@@ -1,12 +1,14 @@
 import https from 'node:https'
-import type { HeroMeta } from '@shared/types'
+import type { EnemyPlayerLiveInfo, HeroMeta } from '@shared/types'
 
 export interface LiveMatchSnapshot {
   inGame: boolean
   myHeroId: string | null
   allyHeroIds: string[]
   enemyHeroIds: string[]
+  enemyPlayers: EnemyPlayerLiveInfo[]
   currentLevel: number
+  currentGold: number
   isDead: boolean
   isAugmentMilestone: boolean
   currentItemIds: string[]
@@ -22,6 +24,7 @@ interface RawLiveAllGameData {
     riotId?: string
     riotIdGameName?: string
     level?: number
+    currentGold?: number
   }
   allPlayers?: Array<{
     summonerName?: string
@@ -31,6 +34,11 @@ interface RawLiveAllGameData {
     rawChampionName?: string
     team?: 'ORDER' | 'CHAOS'
     isDead?: boolean
+    scores?: {
+      kills?: number
+      deaths?: number
+      assists?: number
+    }
     items?: Array<{ itemID: number }>
   }>
 }
@@ -104,7 +112,7 @@ export class ReadOnlyLiveWatcher {
   start(): void {
     if (this.timer) return
     this.pollOnce()
-    this.timer = setInterval(() => this.pollOnce(), 3000)
+    this.timer = setInterval(() => this.pollOnce(), 2500)
   }
 
   stop(): void {
@@ -135,15 +143,39 @@ export class ReadOnlyLiveWatcher {
     const myHeroId = mePlayer ? resolveHeroIdFromPlayer(mePlayer, heroes) : null
     const allyHeroIds: string[] = []
     const enemyHeroIds: string[] = []
+    const rawEnemies: Array<{
+      heroId: string
+      kills: number
+      deaths: number
+      assists: number
+      itemIds: string[]
+    }> = []
 
     for (const p of data.allPlayers) {
       const hid = resolveHeroIdFromPlayer(p, heroes)
       if (!hid) continue
-      if (p.team === myTeam) allyHeroIds.push(hid)
-      else enemyHeroIds.push(hid)
+      if (p.team === myTeam) {
+        allyHeroIds.push(hid)
+      } else {
+        enemyHeroIds.push(hid)
+        rawEnemies.push({
+          heroId: hid,
+          kills: p.scores?.kills ?? 0,
+          deaths: p.scores?.deaths ?? 0,
+          assists: p.scores?.assists ?? 0,
+          itemIds: (p.items || []).map((it) => String(it.itemID)).filter((id) => id !== '0')
+        })
+      }
     }
 
+    const maxKills = Math.max(0, ...rawEnemies.map((e) => e.kills))
+    const enemyPlayers: EnemyPlayerLiveInfo[] = rawEnemies.map((e) => ({
+      ...e,
+      isFedBoss: e.kills >= 5 && e.kills === maxKills && e.kills > e.deaths
+    }))
+
     const level = active?.level ?? 3
+    const currentGold = Math.round(active?.currentGold ?? 1400)
     const isDead = Boolean(mePlayer?.isDead)
     const currentItemIds = (mePlayer?.items || [])
       .map((it) => String(it.itemID))
@@ -154,7 +186,9 @@ export class ReadOnlyLiveWatcher {
       myHeroId,
       allyHeroIds,
       enemyHeroIds,
+      enemyPlayers,
       currentLevel: level,
+      currentGold,
       isDead,
       isAugmentMilestone: AUGMENT_LEVELS.has(level) || (isDead && level >= 7),
       currentItemIds
