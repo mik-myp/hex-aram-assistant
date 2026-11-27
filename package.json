@@ -16,7 +16,7 @@
     "test": "vitest run",
     "pack:mac": "electron-vite build && electron-builder --mac --dir",
     "dist:win": "electron-vite build && electron-builder --win --publish never",
-    "dist:mac": "electron-vite build && electron-builder --mac"
+    "dist:mac": "electron-vite build && electron-builder --mac --publish never"
   },
   "dependencies": {
     "lucide-react": "^0.511.0",
@@ -58,6 +58,13 @@
         "to": "seed-data"
       }
     ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "identity": "-",
+      "hardenedRuntime": false,
+      "target": "dmg",
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
+    },
     "win": {
       "icon": "resources/icon.png",
       "target": [

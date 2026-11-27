@@ -114,6 +114,10 @@ pnpm build
 pnpm dist:win
 ```
 
+在 macOS 上执行 `pnpm dist:mac` 可单独生成 `.dmg`。Apple Silicon 上的产物为 `release/HexBuddy-<版本>-mac-arm64.dmg`。打开磁盘映像后将 `HexBuddy.app` 拖到「应用程序」即可安装。此流程使用临时签名（ad hoc），适合本机测试。公开分发时需另配 Developer ID 签名和公证。
+
+macOS 可使用攻略图鉴和 HUD 演练。游戏窗口边界追踪及切出游戏时自动隐藏 HUD 依赖 Win32，macOS 版没有这些功能。
+
 > **CI/CD 说明**：仓库内置 [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml)，仅在推送 `v*` 标签（如 `git tag v0.3.0 && git push origin v0.3.0`）时自动在 `windows-latest` 构建 `Setup` 与 `Portable` 双版本 `.exe` 并发布至 GitHub Releases；日常推送 `main` 分支不会触发打包。
 
 ---
