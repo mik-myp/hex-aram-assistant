@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import {
   app,
   BrowserWindow,
+  clipboard,
   globalShortcut,
   ipcMain,
   Menu,
@@ -13,6 +14,7 @@ import {
   Tray
 } from 'electron'
 import { DataSyncService } from './data/syncService'
+import { buildDiagnosticSummary, getLogDirPath, logDiag } from './logger/diagLogger'
 import { AppUpdateService } from './updater/updateService'
 import {
   buildAugmentReverseDetail,
@@ -23,12 +25,15 @@ import { ReadOnlyLcuWatcher, type LcuChampSelectSnapshot } from './game/lcuWatch
 import { ReadOnlyLiveWatcher, type LiveMatchSnapshot } from './game/liveWatcher'
 import { createSimulatorScene, makeDefaultCardSlots } from './game/mockSimulator'
 import {
+  checkWindowsElevationParity,
   getActiveLeagueWindow,
+  relaunchAsWindowsAdmin,
   startLeagueWindowTracker,
   stopLeagueWindowTracker
 } from './game/windowTracker'
 import {
   captureScreenAndRecognizeAugments,
+  getOcrDiagnosticStatus,
   recognizeAugmentsFromDataUrl,
   terminateOcrWorker
 } from './ocr/augmentOcr'
@@ -67,6 +72,7 @@ const DEFAULT_PREFS: UserPreferences = {
   autoOcrOnMilestone: true,
   minimizeToTray: true,
   releaseMainOnMatch: true,
+  launchAtLogin: false,
   badgePosition: 'top',
   autoHideWhenUnfocused: true,
   hudOffsetX: 0,
@@ -99,6 +105,9 @@ let manuallyHiddenHud = false
 let userPinnedHudWhileDisconnected = false
 let hudIdleDestroyTimer: NodeJS.Timeout | null = null
 let wasLiveInGame = false
+let wasDeadInLive = false
+let lastRespawnedAt = 0
+let matchEnteredAt = 0
 let lastTrackedDipBounds: WindowBoundsRect | undefined = undefined
 
 let gameState: GameLiveState = {
@@ -168,10 +177,24 @@ async function saveSettings(next: AiSettings): Promise<AiSettings> {
 }
 
 async function savePrefs(next: Partial<UserPreferences>): Promise<UserPreferences> {
+  const prevLaunch = Boolean(currentPrefs.launchAtLogin)
   currentPrefs = { ...currentPrefs, ...next }
   const p = getPrefsPath()
   await mkdir(dirname(p), { recursive: true })
   await writeFile(p, JSON.stringify(currentPrefs, null, 2), 'utf-8')
+
+  if (app.isPackaged && Boolean(currentPrefs.launchAtLogin) !== prevLaunch) {
+    try {
+      app.setLoginItemSettings({
+        openAtLogin: Boolean(currentPrefs.launchAtLogin),
+        args: ['--hidden']
+      })
+      logDiag('PREFS', `Updated launchAtLogin=${Boolean(currentPrefs.launchAtLogin)} (--hidden)`)
+    } catch {
+      // ignore on unsupported environments
+    }
+  }
+
   for (const win of [mainWindow, hudWindow]) {
     if (win && !win.isDestroyed()) {
       win.webContents.send('prefs:updated', currentPrefs)
@@ -350,12 +373,19 @@ async function tickSpatialVisionAndCursor(): Promise<void> {
     return
   }
 
-  // Otherwise, check if we are in a valid fountain selection window to detect a newly opened 3-pick
+  // Otherwise, check if we are in a valid fountain selection window to detect a newly opened 3-pick:
+  // Supports:
+  //  - Level 3 opening fountain window (first 120s of match or while dead/just respawned)
+  //  - Dead countdown at Lv 7/11/15
+  //  - First 14 seconds right AFTER respawning in fountain (fixes missed scans after 25-35s death timers!)
   if (resolvedMilestones.has(m)) return
-  if (!(m === 3 || latestLive.isDead)) return
+  const inRespawnFountainGrace = Date.now() - lastRespawnedAt <= 14_000
+  const inLevel3OpeningGrace = m === 3 && Date.now() - matchEnteredAt <= 120_000
+  if (!(inLevel3OpeningGrace || latestLive.isDead || inRespawnFountainGrace)) return
+
   const tries = milestoneAttempts.get(m) ?? 0
-  if (tries >= 5) return
-  if (Date.now() - lastOcrScanAt < 3200) return
+  if (tries >= 24) return
+  if (Date.now() - lastOcrScanAt < 3000) return
 
   ocrBusy = true
   lastOcrScanAt = Date.now()
@@ -364,6 +394,7 @@ async function tickSpatialVisionAndCursor(): Promise<void> {
     const bundle = syncService.getBundle()
     const res = await captureScreenAndRecognizeAugments(bundle.augments, lastTrackedDipBounds)
     if (res.matchedAugmentIds.length >= 2) {
+      logDiag('OCR', `Auto-detected milestone Lv${m} cards: ${res.matchedAugmentIds.join(',')} (${res.elapsedMs}ms)`)
       emptyOfferScans = 0
       manuallyHiddenHud = false
       toggleSpatialHud(true)
@@ -413,13 +444,18 @@ function recomputeRealGameState(): void {
     clearHudIdleDestroyTimer()
     userPinnedHudWhileDisconnected = false
 
-    // Entering an active match: hibernate mainWindow if enabled to free ~150 MB Renderer + decoded image cache!
-    if (!wasLiveInGame && currentPrefs.releaseMainOnMatch !== false) {
-      if (mainWindow && !mainWindow.isDestroyed()) {
+    if (!wasLiveInGame) {
+      matchEnteredAt = Date.now()
+      logDiag('LIVE', `Entered live match (hero=${latestLive.myHeroId}, lv=${latestLive.currentLevel})`)
+      if (currentPrefs.releaseMainOnMatch !== false && mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.destroy()
         mainWindow = null
       }
     }
+    if (wasDeadInLive && !latestLive.isDead) {
+      lastRespawnedAt = Date.now()
+    }
+    wasDeadInLive = latestLive.isDead
     wasLiveInGame = true
 
     toggleSpatialHud(true)
@@ -465,6 +501,7 @@ function recomputeRealGameState(): void {
     }
   } else {
     wasLiveInGame = false
+    wasDeadInLive = false
     gameState = {
       ...gameState,
       connectionMode: 'disconnected',
@@ -792,6 +829,21 @@ function setupIpcHandlers(): void {
     return buildAugmentReverseDetail(syncService.getBundle(), augmentId)
   })
 
+  // Lightweight main-process pinyin/name search so MiniOverlay's `+` quick picker needs 0 pinyin index in HUD RAM!
+  ipcMain.handle('data:search-augments', (_, query: string) => {
+    const q = (query || '').trim().toLowerCase()
+    const all = Object.values(syncService.getBundle().augments)
+    if (!q) return all.slice(0, 12)
+    return all
+      .filter(
+        (a) =>
+          a.name.toLowerCase().includes(q) ||
+          a.pinyinInitials.includes(q) ||
+          a.pinyinFull.includes(q)
+      )
+      .slice(0, 12)
+  })
+
   ipcMain.handle(
     'data:get-bench-suggestions',
     (_, myHeroId: string | null, allyIds: string[], benchIds: string[]) => {
@@ -1008,55 +1060,109 @@ function setupIpcHandlers(): void {
       isQuitting = true
     })
   })
+
+  ipcMain.handle('system:copy-text', (_, text: string) => {
+    if (typeof text === 'string' && text) {
+      clipboard.writeText(text)
+    }
+  })
+
+  ipcMain.handle('system:get-diagnostics', async () => {
+    const elev = checkWindowsElevationParity()
+    const meta = syncService.getMeta()
+    const trackedStr = lastTrackedDipBounds
+      ? `${gameState.targetWindowKind || 'game'} ${lastTrackedDipBounds.width}x${lastTrackedDipBounds.height} @(${lastTrackedDipBounds.x},${lastTrackedDipBounds.y})`
+      : '未锁定游戏窗口'
+    return buildDiagnosticSummary({
+      isSelfElevated: elev.isSelfElevated,
+      leagueElevatedMismatch: elev.leagueElevatedMismatch,
+      connectionMode: gameState.connectionMode,
+      trackedWindowSummary: trackedStr,
+      ocrEngineSummary: getOcrDiagnosticStatus(),
+      datasetSummary: `${meta.patch} (${meta.modeLabel} · seq#${meta.seq} · ${meta.fromSource})`
+    })
+  })
+
+  ipcMain.handle('system:open-log-dir', () => {
+    shell.openPath(getLogDirPath())
+  })
+
+  ipcMain.handle('system:relaunch-admin', () => {
+    if (process.platform !== 'win32') return false
+    const targetExe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath
+    const args = process.env.PORTABLE_EXECUTABLE_FILE ? [] : process.argv.slice(1)
+    const launched = relaunchAsWindowsAdmin(targetExe, args)
+    if (launched) {
+      isQuitting = true
+      setTimeout(() => app.quit(), 150)
+    }
+    return launched
+  })
 }
 
-app.whenReady().then(async () => {
-  if (process.platform !== 'darwin') {
-    Menu.setApplicationMenu(null)
-  }
-  await loadSettingsAndPrefs()
-  await syncService.init()
-  setupIpcHandlers()
-  createSystemTray()
-  createMainWindow()
-  registerShortcuts()
-
-  lcuWatcher = new ReadOnlyLcuWatcher((snap) => {
-    latestLcu = snap
-    recomputeRealGameState()
-  })
-  liveWatcher = new ReadOnlyLiveWatcher(
-    () => syncService.getBundle().heroes,
-    (snap) => {
-      latestLive = snap
-      recomputeRealGameState()
-    }
-  )
-  startLeagueWindowTracker()
-  lcuWatcher.start()
-  liveWatcher.start()
-
-  hudLoopTimer = setInterval(() => {
-    tickSpatialVisionAndCursor().catch(() => {})
-  }, 300)
-
-  syncService.checkAndSync(false).catch(() => {})
-
-  updateService.onStateChanged((st) => {
-    for (const win of [mainWindow, hudWindow]) {
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('updater:state-updated', st)
-      }
-    }
-  })
-  setTimeout(() => {
-    updateService.checkForUpdates().catch(() => {})
-  }, 2500)
-
-  app.on('activate', () => {
+// Enforce Single-Instance Lock: prevents duplicate Tray icons, double HUDs, and shortcut conflicts!
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  isQuitting = true
+  app.quit()
+} else {
+  app.on('second-instance', () => {
     showMainWindow()
   })
-})
+
+  app.whenReady().then(async () => {
+    if (process.platform !== 'darwin') {
+      Menu.setApplicationMenu(null)
+    }
+    await loadSettingsAndPrefs()
+    await syncService.init()
+    setupIpcHandlers()
+    createSystemTray()
+
+    const startedHidden = process.argv.includes('--hidden')
+    logDiag('BOOT', `HexBuddy v${app.getVersion()} ready (hidden=${startedHidden})`)
+    if (!startedHidden) {
+      createMainWindow()
+    }
+    registerShortcuts()
+
+    lcuWatcher = new ReadOnlyLcuWatcher((snap) => {
+      latestLcu = snap
+      recomputeRealGameState()
+    })
+    liveWatcher = new ReadOnlyLiveWatcher(
+      () => syncService.getBundle().heroes,
+      (snap) => {
+        latestLive = snap
+        recomputeRealGameState()
+      }
+    )
+    startLeagueWindowTracker()
+    lcuWatcher.start()
+    liveWatcher.start()
+
+    hudLoopTimer = setInterval(() => {
+      tickSpatialVisionAndCursor().catch(() => {})
+    }, 300)
+
+    syncService.checkAndSync(false).catch(() => {})
+
+    updateService.onStateChanged((st) => {
+      for (const win of [mainWindow, hudWindow]) {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('updater:state-updated', st)
+        }
+      }
+    })
+    setTimeout(() => {
+      updateService.checkForUpdates().catch(() => {})
+    }, 2500)
+
+    app.on('activate', () => {
+      showMainWindow()
+    })
+  })
+}
 
 app.on('before-quit', () => {
   isQuitting = true

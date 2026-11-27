@@ -1,4 +1,5 @@
 import https from 'node:https'
+import { hasActiveGameWindow } from './windowTracker'
 import type { EnemyPlayerLiveInfo, HeroMeta } from '@shared/types'
 
 export interface LiveMatchSnapshot {
@@ -98,6 +99,7 @@ const AUGMENT_LEVELS = new Set([3, 7, 11, 15])
 
 export class ReadOnlyLiveWatcher {
   private timer: NodeJS.Timeout | null = null
+  private hadActiveGame = false
   private getHeroes: () => Record<string, HeroMeta>
   private onUpdate: (snapshot: LiveMatchSnapshot | null) => void
 
@@ -123,11 +125,24 @@ export class ReadOnlyLiveWatcher {
   }
 
   private async pollOnce(): Promise<void> {
-    const data = await readOnlyGetLive2999()
-    if (!data || !Array.isArray(data.allPlayers) || data.allPlayers.length === 0) {
-      this.onUpdate(null)
+    // Zero-network idle short-circuit: do NOT open TCP/TLS sockets to 127.0.0.1:2999 when RiotWindowClass isn't open!
+    if (!hasActiveGameWindow()) {
+      if (this.hadActiveGame) {
+        this.hadActiveGame = false
+        this.onUpdate(null)
+      }
       return
     }
+
+    const data = await readOnlyGetLive2999()
+    if (!data || !Array.isArray(data.allPlayers) || data.allPlayers.length === 0) {
+      if (this.hadActiveGame) {
+        this.hadActiveGame = false
+        this.onUpdate(null)
+      }
+      return
+    }
+    this.hadActiveGame = true
 
     const heroes = this.getHeroes()
     const active = data.activePlayer

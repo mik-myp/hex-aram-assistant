@@ -6,6 +6,7 @@ import type {
   AugmentReverseDetail,
   BenchSuggestion,
   DatasetMetadata,
+  DiagnosticSummary,
   GameLiveState,
   HeroDetailGuide,
   HeroMeta,
@@ -38,6 +39,7 @@ export interface HexBuddyApi {
   releaseRendererCache: () => void
   getHeroGuide: (heroId: string) => Promise<HeroDetailGuide | null>
   getAugmentReverse: (augmentId: string) => Promise<AugmentReverseDetail | null>
+  searchAugments: (query: string) => Promise<AugmentMeta[]>
   getBenchSuggestions: (
     myHeroId: string | null,
     allyIds: string[],
@@ -89,6 +91,10 @@ export interface HexBuddyApi {
   closeMain: () => Promise<void>
   setHudInteractive: (interactive: boolean) => Promise<void>
   openExternal: (url: string) => Promise<void>
+  copyText: (text: string) => Promise<void>
+  getDiagnostics: () => Promise<DiagnosticSummary>
+  openLogDir: () => Promise<void>
+  relaunchAsAdmin: () => Promise<boolean>
   getUpdateState: () => Promise<AppUpdateState>
   checkForUpdates: () => Promise<AppUpdateState>
   downloadUpdate: () => Promise<AppUpdateState>
@@ -112,6 +118,7 @@ const api: HexBuddyApi = {
   },
   getHeroGuide: (heroId) => ipcRenderer.invoke('data:get-hero-guide', heroId),
   getAugmentReverse: (augmentId) => ipcRenderer.invoke('data:get-augment-reverse', augmentId),
+  searchAugments: (query) => ipcRenderer.invoke('data:search-augments', query),
   getBenchSuggestions: (myHeroId, allyIds, benchIds) =>
     ipcRenderer.invoke('data:get-bench-suggestions', myHeroId, allyIds, benchIds),
   syncNow: (force) => ipcRenderer.invoke('data:sync-now', force),
@@ -135,6 +142,10 @@ const api: HexBuddyApi = {
   closeMain: () => ipcRenderer.invoke('window:close-main'),
   setHudInteractive: (interactive) => ipcRenderer.invoke('window:set-hud-interactive', interactive),
   openExternal: (url) => ipcRenderer.invoke('window:open-external', url),
+  copyText: (text) => ipcRenderer.invoke('system:copy-text', text),
+  getDiagnostics: () => ipcRenderer.invoke('system:get-diagnostics'),
+  openLogDir: () => ipcRenderer.invoke('system:open-log-dir'),
+  relaunchAsAdmin: () => ipcRenderer.invoke('system:relaunch-admin'),
   getUpdateState: () => ipcRenderer.invoke('updater:get-state'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   downloadUpdate: () => ipcRenderer.invoke('updater:download'),

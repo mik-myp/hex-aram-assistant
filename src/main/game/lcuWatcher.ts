@@ -193,6 +193,7 @@ export class ReadOnlyLcuWatcher {
   private timer: NodeJS.Timeout | null = null
   private ws: WebSocket | null = null
   private currentPort: string | null = null
+  private hadActiveSession = false
   private onUpdate: (snapshot: LcuChampSelectSnapshot | null) => void
 
   constructor(onUpdate: (snapshot: LcuChampSelectSnapshot | null) => void) {
@@ -229,7 +230,10 @@ export class ReadOnlyLcuWatcher {
     const creds = await detectLcuCredentials()
     if (!creds) {
       this.closeWs()
-      this.onUpdate(null)
+      if (this.hadActiveSession) {
+        this.hadActiveSession = false
+        this.onUpdate(null)
+      }
       return
     }
 
@@ -241,7 +245,11 @@ export class ReadOnlyLcuWatcher {
       creds,
       '/lol-champ-select/v1/session'
     )
-    this.onUpdate(parseSession(session))
+    const snap = parseSession(session)
+    if (snap.inChampSelect || this.hadActiveSession) {
+      this.hadActiveSession = snap.inChampSelect
+      this.onUpdate(snap)
+    }
   }
 
   private connectWs(creds: LcuCredentials): void {

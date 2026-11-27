@@ -33,6 +33,7 @@ interface Win32Bindings {
   IsWindowVisible: (hWnd: unknown) => boolean
   GetForegroundWindow: () => unknown
   GetWindowThreadProcessId: (hWnd: unknown, lpdwProcessId: [number]) => number
+  GetCurrentProcess: () => unknown
   OpenProcess: (dwDesiredAccess: number, bInheritHandle: boolean, dwProcessId: number) => unknown
   CloseHandle: (hObject: unknown) => boolean
   QueryFullProcessImageNameW: (
@@ -41,9 +42,28 @@ interface Win32Bindings {
     lpExeName: Buffer,
     lpdwSize: [number]
   ) => boolean
+  OpenProcessToken: (ProcessHandle: unknown, DesiredAccess: number, TokenHandle: [unknown]) => boolean
+  GetTokenInformation: (
+    TokenHandle: unknown,
+    TokenInformationClass: number,
+    TokenInformation: Buffer,
+    TokenInformationLength: number,
+    ReturnLength: [number]
+  ) => boolean
+  ShellExecuteW: (
+    hwnd: unknown,
+    lpOperation: string | null,
+    lpFile: string,
+    lpParameters: string | null,
+    lpDirectory: string | null,
+    nShowCmd: number
+  ) => unknown
 }
 
+const PROCESS_QUERY_INFORMATION = 0x0400
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+const TOKEN_QUERY = 0x0008
+const TOKEN_ELEVATION_CLASS = 20
 
 let win32: Win32Bindings | null = null
 let win32InitFailed = false
@@ -66,6 +86,8 @@ function getWin32(): Win32Bindings | null {
 
     const user32 = koffi.load('user32.dll')
     const kernel32 = koffi.load('kernel32.dll')
+    const advapi32 = koffi.load('advapi32.dll')
+    const shell32 = koffi.load('shell32.dll')
 
     // Ensure Per-Monitor DPI awareness (Electron sets this in manifest on Win10/11, safe belt-and-suspenders)
     try {
@@ -86,12 +108,22 @@ function getWin32(): Win32Bindings | null {
       GetWindowThreadProcessId: user32.func(
         'uint32 __stdcall GetWindowThreadProcessId(void *hWnd, _Out_ uint32 *lpdwProcessId)'
       ),
+      GetCurrentProcess: kernel32.func('void * __stdcall GetCurrentProcess()'),
       OpenProcess: kernel32.func(
         'void * __stdcall OpenProcess(uint32 dwDesiredAccess, bool bInheritHandle, uint32 dwProcessId)'
       ),
       CloseHandle: kernel32.func('bool __stdcall CloseHandle(void *hObject)'),
       QueryFullProcessImageNameW: kernel32.func(
         'bool __stdcall QueryFullProcessImageNameW(void *hProcess, uint32 dwFlags, void *lpExeName, _Inout_ uint32 *lpdwSize)'
+      ),
+      OpenProcessToken: advapi32.func(
+        'bool __stdcall OpenProcessToken(void *ProcessHandle, uint32 DesiredAccess, _Out_ void **TokenHandle)'
+      ),
+      GetTokenInformation: advapi32.func(
+        'bool __stdcall GetTokenInformation(void *TokenHandle, int32 TokenInformationClass, void *TokenInformation, uint32 TokenInformationLength, _Out_ uint32 *ReturnLength)'
+      ),
+      ShellExecuteW: shell32.func(
+        'void * __stdcall ShellExecuteW(void *hwnd, str16 lpOperation, str16 lpFile, str16 lpParameters, str16 lpDirectory, int32 nShowCmd)'
       )
     }
     return win32
@@ -219,4 +251,91 @@ export function findLeagueClientUxProcessInfo(): LeagueClientProcessInfo | null 
 
   const exePath = queryExePathByPid(api, pid)
   return { pid, exePath }
+}
+
+/**
+ * <0.005ms check for whether the in-game `RiotWindowClass` window exists on Windows,
+ * used to short-circuit `127.0.0.1:2999` HTTPS polling when no game is running!
+ */
+export function hasActiveGameWindow(): boolean {
+  if (process.platform !== 'win32') return true
+  const api = getWin32()
+  if (!api) return true
+  const gameHwnd = api.FindWindowW('RiotWindowClass', null)
+  return hwndAddr(gameHwnd) !== 0n
+}
+
+let cachedSelfElevated: boolean | null = null
+
+/**
+ * Checks whether HexBuddy itself is running elevated (Administrator) and whether an active
+ * WeGame / League of Legends process is running at higher integrity (which blocks global hotkeys via UIPI!).
+ */
+export function checkWindowsElevationParity(): {
+  isSelfElevated: boolean
+  leagueElevatedMismatch: boolean
+} {
+  const api = getWin32()
+  if (!api) {
+    return { isSelfElevated: false, leagueElevatedMismatch: false }
+  }
+
+  if (cachedSelfElevated === null) {
+    try {
+      const tokOut: [unknown] = [null]
+      if (api.OpenProcessToken(api.GetCurrentProcess(), TOKEN_QUERY, tokOut) && hwndAddr(tokOut[0]) !== 0n) {
+        const elevBuf = Buffer.alloc(4)
+        const retLen: [number] = [0]
+        if (api.GetTokenInformation(tokOut[0], TOKEN_ELEVATION_CLASS, elevBuf, 4, retLen)) {
+          cachedSelfElevated = elevBuf.readUInt32LE(0) !== 0
+        }
+        api.CloseHandle(tokOut[0])
+      }
+    } catch {
+      cachedSelfElevated = false
+    }
+    if (cachedSelfElevated === null) cachedSelfElevated = false
+  }
+
+  if (cachedSelfElevated) {
+    return { isSelfElevated: true, leagueElevatedMismatch: false }
+  }
+
+  // If HexBuddy is NOT elevated, check if active League window belongs to an elevated process (WeGame default)
+  const targetHwnd = api.FindWindowW('RiotWindowClass', null) || api.FindWindowW('RCLIENT', null)
+  if (hwndAddr(targetHwnd) === 0n) {
+    return { isSelfElevated: false, leagueElevatedMismatch: false }
+  }
+
+  const pidOut: [number] = [0]
+  api.GetWindowThreadProcessId(targetHwnd, pidOut)
+  const pid = pidOut[0]
+  if (pid <= 0) {
+    return { isSelfElevated: false, leagueElevatedMismatch: false }
+  }
+
+  // Standard Windows UIPI signature: LIMITED_INFORMATION succeeds while full QUERY_INFORMATION is denied (NULL)
+  const hFull = api.OpenProcess(PROCESS_QUERY_INFORMATION, false, pid)
+  if (hwndAddr(hFull) !== 0n) {
+    api.CloseHandle(hFull)
+    return { isSelfElevated: false, leagueElevatedMismatch: false }
+  }
+  const hLim = api.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+  if (hwndAddr(hLim) !== 0n) {
+    api.CloseHandle(hLim)
+    return { isSelfElevated: false, leagueElevatedMismatch: true }
+  }
+  return { isSelfElevated: false, leagueElevatedMismatch: false }
+}
+
+/**
+ * Triggers the standard Windows UAC elevation prompt ("runas") to relaunch HexBuddy as Administrator
+ * when the user clicks "以管理员身份重启".
+ */
+export function relaunchAsWindowsAdmin(execPath: string, args: string[]): boolean {
+  const api = getWin32()
+  if (!api) return false
+  const paramStr = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')
+  const res = api.ShellExecuteW(null, 'runas', execPath, paramStr || null, null, 1)
+  return hwndAddr(res) > 32n
 }

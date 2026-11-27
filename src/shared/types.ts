@@ -174,6 +174,7 @@ export interface UserPreferences {
   autoOcrOnMilestone: boolean
   minimizeToTray: boolean
   releaseMainOnMatch?: boolean
+  launchAtLogin?: boolean
   badgePosition: 'top' | 'bottom'
   autoHideWhenUnfocused: boolean
   hudOffsetX: number
@@ -338,4 +339,12 @@ export interface AppUpdateState {
   downloadedFilePath: string | null
   errorMessage?: string
   checkedAt: number | null
+}
+
+export interface DiagnosticSummary {
+  isWindows: boolean
+  isSelfElevated: boolean
+  leagueElevatedMismatch: boolean
+  logDirPath: string
+  formattedReport: string
 }

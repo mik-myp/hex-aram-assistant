@@ -4,11 +4,14 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { app } from 'electron'
 import { toPinyinIndex } from '@shared/pinyin'
+import { logDiag } from '../logger/diagLogger'
 import type {
   AugmentMeta,
   DatasetMetadata,
   DatasetOption,
   HeroMeta,
+  HeroRole,
+  ItemMeta,
   SeedBundle,
   TierGrade
 } from '@shared/types'
@@ -70,6 +73,128 @@ interface RemoteIndexManifest {
     snapshot_at?: string
     files?: Record<string, { sha256: string; size: number }>
   }>
+}
+
+function cleanRiotDescText(raw: string): string {
+  return (raw || '')
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/@[^@]+@/g, '')
+    .replace(/%i:[^%]+%/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Zero-release self-healing helper: if a future LoL patch introduces brand-new Champion IDs,
+ * Augment IDs, or Item IDs not present in our bundled offline seed, dynamically fetches their
+ * official Chinese names, descriptions, and icon URLs from Tencent's public `game.gtimg.cn` CDN!
+ */
+async function selfHealMissingCatalogEntries(params: {
+  heroes: Record<string, HeroMeta>
+  augments: Record<string, AugmentMeta>
+  items: Record<string, ItemMeta>
+  referencedItemIds: Set<string>
+}): Promise<void> {
+  const { heroes, augments, items, referencedItemIds } = params
+
+  const missingHeroes = Object.values(heroes).some((h) => !h.avatarUrl || h.alias.startsWith('Hero'))
+  const missingAugments = Object.values(augments).some((a) => !a.iconUrl || a.desc === a.name)
+  const missingItems = [...referencedItemIds].some((id) => id && id !== '0' && !items[id])
+
+  const tasks: Promise<void>[] = []
+
+  if (missingHeroes) {
+    tasks.push(
+      fetch('https://game.gtimg.cn/images/lol/act/img/js/heroList/hero_list.js', {
+        signal: AbortSignal.timeout(8000)
+      })
+        .then((r) => (r.ok ? (r.json() as Promise<{ hero?: Array<Record<string, unknown>> }>) : null))
+        .then((data) => {
+          if (!data?.hero) return
+          for (const gh of data.hero) {
+            const hid = String(gh.heroId || '')
+            const target = heroes[hid]
+            if (!target || (target.avatarUrl && !target.alias.startsWith('Hero'))) continue
+            const alias = String(gh.alias || target.alias)
+            const roles = (Array.isArray(gh.roles) ? gh.roles : ['fighter']) as HeroRole[]
+            target.alias = alias
+            target.roles = roles
+            target.avatarUrl = `https://game.gtimg.cn/images/lol/act/img/champion/${alias}.png`
+          }
+          logDiag('SYNC', 'Auto-healed new champion metadata from game.gtimg.cn')
+        })
+        .catch(() => {})
+    )
+  }
+
+  if (missingAugments) {
+    tasks.push(
+      fetch('https://game.gtimg.cn/images/lol/act/img/js/kiwi_augments/kiwi_augments.json', {
+        signal: AbortSignal.timeout(8000)
+      })
+        .then((r) =>
+          r.ok ? (r.json() as Promise<{ augments?: Record<string, Record<string, unknown>> }>) : null
+        )
+        .then((data) => {
+          const map = data?.augments
+          if (!map) return
+          for (const [aid, raw] of Object.entries(map)) {
+            const target = augments[aid]
+            if (!target) continue
+            if (target.desc === target.name && typeof raw.desc === 'string') {
+              target.desc = cleanRiotDescText(raw.desc) || target.name
+            }
+            if (!target.iconUrl && typeof raw.augmentSmallIconPath === 'string') {
+              const rel = raw.augmentSmallIconPath
+                .toLowerCase()
+                .replace(/^\/lol-game-data\/assets\//, '')
+              target.iconUrl = `https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/${rel}`
+            }
+          }
+          logDiag('SYNC', 'Auto-healed new augment icons/descriptions from game.gtimg.cn')
+        })
+        .catch(() => {})
+    )
+  }
+
+  if (missingItems) {
+    tasks.push(
+      fetch('https://game.gtimg.cn/images/lol/act/img/js/items/items.js', {
+        signal: AbortSignal.timeout(8000)
+      })
+        .then((r) => (r.ok ? (r.json() as Promise<{ items?: Array<Record<string, unknown>> }>) : null))
+        .then((data) => {
+          if (!data?.items) return
+          for (const it of data.items) {
+            const iid = String(it.itemId || '')
+            if (!iid || items[iid] || !referencedItemIds.has(iid)) continue
+            const name = String(it.name || `装备${iid}`)
+            const plain = cleanRiotDescText(String(it.plaintext || ''))
+            const desc = cleanRiotDescText(String(it.description || ''))
+            items[iid] = {
+              id: iid,
+              name,
+              iconUrl:
+                typeof it.iconPath === 'string' && it.iconPath
+                  ? it.iconPath
+                  : `https://game.gtimg.cn/images/lol/act/img/item/${iid}.png`,
+              category: 'other',
+              types: Array.isArray(it.types) ? (it.types as string[]) : [],
+              totalGold: Number(it.price || 2500),
+              brief: plain || desc.slice(0, 36),
+              fullDesc: desc || plain
+            }
+          }
+          logDiag('SYNC', 'Auto-healed new patch items from game.gtimg.cn')
+        })
+        .catch(() => {})
+    )
+  }
+
+  if (tasks.length > 0) {
+    await Promise.all(tasks)
+  }
 }
 
 export class DataSyncService {
@@ -517,14 +642,34 @@ export class DataSyncService {
       }))
     }
 
+    const nextItems: Record<string, ItemMeta> = { ...current.items }
+    const referencedItemIds = new Set<string>()
+    for (const list of Object.values(rawCoreBuilds)) {
+      for (const b of list || []) {
+        for (const iid of b.items || []) referencedItemIds.add(String(iid))
+      }
+    }
+    for (const itemMap of Object.values(rawHeroItems)) {
+      for (const [iid, st] of Object.entries(itemMap)) {
+        if (st.games >= 80) referencedItemIds.add(iid)
+      }
+    }
+
+    await selfHealMissingCatalogEntries({
+      heroes: nextHeroes,
+      augments: nextAugments,
+      items: nextItems,
+      referencedItemIds
+    })
+
     const nextHeroItems: SeedBundle['heroItems'] = {}
     for (const [heroId, itemMap] of Object.entries(rawHeroItems)) {
       nextHeroItems[heroId] = Object.entries(itemMap)
         .filter(
           ([itemId, st]) =>
             st.games >= 80 &&
-            current.items[itemId] &&
-            !(current.items[itemId].types || []).includes('Boots')
+            nextItems[itemId] &&
+            !(nextItems[itemId].types || []).includes('Boots')
         )
         .sort((a, b) => b[1].games - a[1].games)
         .slice(0, 18)
@@ -575,7 +720,7 @@ export class DataSyncService {
       },
       heroes: nextHeroes,
       augments: nextAugments,
-      items: current.items,
+      items: nextItems,
       heroAugments: nextHeroAugments,
       coreBuilds: nextCoreBuilds,
       heroItems: nextHeroItems,

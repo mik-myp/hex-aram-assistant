@@ -34,6 +34,17 @@ const OCR_IDLE_RELEASE_MS = 15_000
 let ocrWorkerPromise: Promise<Worker> | null = null
 let ocrIdleTimer: NodeJS.Timeout | null = null
 let winNativeOcrSupported: boolean | null = null
+let lastOcrStatsSummary = '尚未触发选卡识屏'
+
+export function getOcrDiagnosticStatus(): string {
+  const mode =
+    process.platform === 'win32'
+      ? winNativeOcrSupported === false
+        ? 'Tesseract兜底(15s休眠)'
+        : 'Windows原生WinRT优先(0MB常驻)'
+      : 'Tesseract离线(15s休眠)'
+  return `${mode} | ${lastOcrStatsSummary}`
+}
 
 const WINRT_OCR_SCRIPT = `
 param([string]$ImgPath)
@@ -399,13 +410,16 @@ export async function recognizeAugmentsFromDataUrl(
       cardSlots.push(...buildResolutionAwareCardSlots(passResult.matchedIds, imgW, imgH))
     }
 
+    const elapsedMs = Date.now() - start
+    lastOcrStatsSummary = `最近命中 ${passResult.matchedIds.length} 张 (${elapsedMs}ms, 图像 ${imgW}x${imgH})`
+
     return {
       success: passResult.matchedIds.length > 0,
       matchedAugmentIds: passResult.matchedIds,
       cardSlots,
       rawTexts: passResult.rawLines.slice(0, 8),
       confidence: passResult.avgConf,
-      elapsedMs: Date.now() - start,
+      elapsedMs,
       error: passResult.matchedIds.length === 0 ? '未检测到三选一海克斯卡片' : undefined
     }
   } catch (err) {

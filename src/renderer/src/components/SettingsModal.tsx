@@ -1,10 +1,13 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
+  AlertTriangle,
   ArrowUpCircle,
   Check,
+  ClipboardCopy,
   Database,
   Download,
   ExternalLink,
+  FolderOpen,
   KeyRound,
   Keyboard,
   Loader2,
@@ -12,6 +15,7 @@ import {
   Rocket,
   ScanEye,
   Shield,
+  ShieldAlert,
   Users,
   X
 } from 'lucide-react'
@@ -19,6 +23,7 @@ import type {
   AiSettings,
   AppUpdateState,
   DatasetMetadata,
+  DiagnosticSummary,
   HeroRole,
   UserPreferences
 } from '@shared/types'
@@ -84,6 +89,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [releaseMainOnMatch, setReleaseMainOnMatch] = useState<boolean>(
     prefs.releaseMainOnMatch ?? true
   )
+  const [launchAtLogin, setLaunchAtLogin] = useState<boolean>(prefs.launchAtLogin ?? false)
   const [autoHideUnfocused, setAutoHideUnfocused] = useState<boolean>(
     prefs.autoHideWhenUnfocused ?? true
   )
@@ -91,7 +97,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [hudOffsetX, setHudOffsetX] = useState<number>(prefs.hudOffsetX ?? 0)
   const [hudOffsetY, setHudOffsetY] = useState<number>(prefs.hudOffsetY ?? 0)
   const [preferredRoles, setPreferredRoles] = useState<HeroRole[]>(prefs.preferredRoles || [])
+  const [diag, setDiag] = useState<DiagnosticSummary | null>(null)
+  const [copiedDiag, setCopiedDiag] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    window.hexbuddy.getDiagnostics().then(setDiag).catch(() => {})
+  }, [])
 
   const currentDatasetPath =
     meta.availableDatasets?.find((d) => d.patch === meta.patch && d.mode === meta.mode)?.path ||
@@ -107,6 +119,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       autoOcrOnMilestone: autoOcr,
       minimizeToTray,
       releaseMainOnMatch,
+      launchAtLogin,
       autoHideWhenUnfocused: autoHideUnfocused,
       badgePosition,
       hudOffsetX,
@@ -250,6 +263,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </section>
           )}
 
+          {/* 0b. Windows WeGame UAC Privilege Parity Alert / Relaunch */}
+          {diag?.isWindows && !diag.isSelfElevated && (
+            <section
+              className={`p-3 rounded-lg border text-xs flex items-center justify-between gap-3 ${
+                diag.leagueElevatedMismatch
+                  ? 'bg-amber-500/15 border-amber-400/55 text-amber-100'
+                  : 'bg-[#0E1728] border-[#C8AA6E]/25 text-[#C8C1B2]'
+              }`}
+            >
+              <div className="flex items-start gap-2">
+                {diag.leagueElevatedMismatch ? (
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                ) : (
+                  <ShieldAlert className="w-4 h-4 text-[#C8AA6E] shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <div className="font-semibold text-[#F0E6D2]">
+                    {diag.leagueElevatedMismatch
+                      ? '检测到游戏正以管理员权限运行（WeGame 默认），当前普通权限下游戏内快捷键可能被系统拦截'
+                      : '当前以普通权限运行（若通过 WeGame 启动游戏导致 Alt+H/S 失灵，可切换管理员权限）'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => window.hexbuddy.relaunchAsAdmin()}
+                className="px-2.5 py-1.5 rounded bg-[#C8AA6E] hover:bg-[#E2C992] text-[#070B12] font-semibold shrink-0 cursor-pointer"
+              >
+                以管理员身份重启
+              </button>
+            </section>
+          )}
+
           {/* 1. HUD & Tray Behavior */}
           <section className="space-y-2.5">
             <div className="flex items-center gap-2 text-[#E2C992] font-medium">
@@ -297,6 +343,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </div>
                   <p className="text-[#94A3B8] mt-0.5">
                     对局中由原位 HUD 全程接管推荐；随时可点 HUD 书本图标或双击托盘秒开图鉴
+                  </p>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2 p-2.5 rounded bg-[#111B2C] border border-[#C8AA6E]/20 cursor-pointer md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={launchAtLogin}
+                  onChange={(e) => setLaunchAtLogin(e.target.checked)}
+                  className="mt-0.5 accent-[#0AC8B9]"
+                />
+                <div>
+                  <div className="font-semibold text-[#F0E6D2]">
+                    开机静默随系统启动并驻留托盘（不弹主窗口打扰，待机仅约 60MB）
+                  </div>
+                  <p className="text-[#94A3B8] mt-0.5">
+                    打开英雄联盟进入大乱斗选人时自动唤醒原位 HUD，打完退出自动休眠
                   </p>
                 </div>
               </label>
@@ -542,20 +605,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </section>
 
-          {/* Attribution */}
-          <section className="p-3 rounded bg-[#090E17] border border-[#C8AA6E]/20 text-xs text-[#94A3B8] flex items-center justify-between gap-2">
-            <span className="flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5 text-[#0AC8B9]" />
-              当前 {meta.patch} · {meta.modeLabel}（{meta.matchesValid.toLocaleString()} 场对局 · CC BY-NC 4.0）
-            </span>
-            <button
-              type="button"
-              onClick={() => window.hexbuddy.openExternal(meta.sourceRepo)}
-              className="inline-flex items-center gap-1 text-[#C8AA6E] hover:underline cursor-pointer shrink-0"
-            >
-              aramhex-data
-              <ExternalLink className="w-3 h-3" />
-            </button>
+          {/* Attribution & 1-Click Diagnostics */}
+          <section className="p-3 rounded bg-[#090E17] border border-[#C8AA6E]/20 text-xs text-[#94A3B8] space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5 text-[#0AC8B9]" />
+                当前 {meta.patch} · {meta.modeLabel}（{meta.matchesValid.toLocaleString()} 场对局 · CC BY-NC 4.0）
+              </span>
+              <button
+                type="button"
+                onClick={() => window.hexbuddy.openExternal(meta.sourceRepo)}
+                className="inline-flex items-center gap-1 text-[#C8AA6E] hover:underline cursor-pointer shrink-0"
+              >
+                aramhex-data
+                <ExternalLink className="w-3 h-3" />
+              </button>
+            </div>
+
+            {diag && (
+              <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-[#64748B]">
+                  遇到坐标或识屏问题？可导出脱敏运行摘要排障
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.hexbuddy.copyText(diag.formattedReport)
+                      setCopiedDiag(true)
+                      setTimeout(() => setCopiedDiag(false), 2000)
+                    }}
+                    className="px-2 py-1 rounded bg-[#141F30] hover:bg-[#1B2B44] text-[#C8C1B2] flex items-center gap-1 cursor-pointer"
+                  >
+                    <ClipboardCopy className="w-3 h-3 text-[#0AC8B9]" />
+                    <span>{copiedDiag ? '✓ 已复制诊断摘要' : '复制诊断摘要'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.hexbuddy.openLogDir()}
+                    className="px-2 py-1 rounded bg-[#141F30] hover:bg-[#1B2B44] text-[#94A3B8] hover:text-[#F0E6D2] flex items-center gap-1 cursor-pointer"
+                  >
+                    <FolderOpen className="w-3 h-3" />
+                    <span>日志目录</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
 
           <div className="flex justify-end gap-2">

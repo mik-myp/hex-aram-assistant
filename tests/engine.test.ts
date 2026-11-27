@@ -18,6 +18,7 @@ import {
   smoothWinRate
 } from '../src/main/data/synergyEngine'
 import { computeLocalTacticalAdvice } from '../src/main/ai/advisorService'
+import { buildDiagnosticSummary, logDiag } from '../src/main/logger/diagLogger'
 import {
   compareSemver,
   selectMatchingReleaseAsset
@@ -395,5 +396,20 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     ]
     expect(selectMatchingReleaseAsset(assets, false)?.name).toBe('HexBuddy-Setup-0.3.1.exe')
     expect(selectMatchingReleaseAsset(assets, true)?.name).toBe('HexBuddy-Portable-0.3.1.exe')
+  })
+
+  it('builds desensitized diagnostic summary with elevation & OCR status', async () => {
+    logDiag('TEST', 'Simulated diagnostic check ok')
+    const summary = await buildDiagnosticSummary({
+      isSelfElevated: false,
+      leagueElevatedMismatch: true,
+      connectionMode: 'live-in-game',
+      trackedWindowSummary: 'game 2560x1440 @(0,0)',
+      ocrEngineSummary: 'Windows原生WinRT优先(0MB常驻)',
+      datasetSummary: '16.23 (常规 · seq#22 · bundled)'
+    })
+    expect(summary.leagueElevatedMismatch).toBe(true)
+    expect(summary.formattedReport).toContain('2560x1440')
+    expect(summary.formattedReport).toContain('Simulated diagnostic check ok')
   })
 })

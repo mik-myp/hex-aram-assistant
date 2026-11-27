@@ -10,8 +10,10 @@ import {
   Loader2,
   Monitor,
   MousePointerClick,
+  Plus,
   RotateCcw,
   Ruler,
+  Search,
   Sparkles,
   Trash2,
   Users,
@@ -61,6 +63,10 @@ export const MiniOverlay: React.FC = () => {
   const [aiBriefBusy, setAiBriefBusy] = useState(false)
   const [aiBrief, setAiBrief] = useState<string | null>(null)
   const [hoveredBar, setHoveredBar] = useState(false)
+  const [copiedItemTip, setCopiedItemTip] = useState<string | null>(null)
+  const [showAugPicker, setShowAugPicker] = useState(false)
+  const [augSearchQuery, setAugSearchQuery] = useState('')
+  const [augSearchResults, setAugSearchResults] = useState<AugmentMeta[]>([])
 
   // Live window dimensions (tracks real LoL window resize on Windows, or screen bounds in Simulator)
   const [hostSize, setHostSize] = useState<{ w: number; h: number }>({
@@ -176,7 +182,22 @@ export const MiniOverlay: React.FC = () => {
 
   const leaveInteractive = (): void => {
     setHoveredBar(false)
+    setShowAugPicker(false)
     window.hexbuddy.setHudInteractive(false)
+  }
+
+  useEffect(() => {
+    if (!showAugPicker) return
+    window.hexbuddy.searchAugments(augSearchQuery).then(setAugSearchResults)
+  }, [showAugPicker, augSearchQuery])
+
+  const handleCopyShopItemName = (name: string): void => {
+    window.hexbuddy.copyText(name)
+    const msg = `✓ 已复制「${name}」，游戏商店 Ctrl+V 秒搜`
+    setCopiedItemTip(msg)
+    setTimeout(() => {
+      setCopiedItemTip((prev) => (prev === msg ? null : prev))
+    }, 2200)
   }
 
   if (!gameState) return null
@@ -743,9 +764,9 @@ export const MiniOverlay: React.FC = () => {
               </div>
             )}
 
-            {/* Picked Augment Mini Slots */}
-            {gameState.pickedAugmentIds.length > 0 && (
-              <div className="flex items-center gap-1 pl-1 border-l border-white/15">
+            {/* Picked Augment Mini Slots + `+` Quick Manual Add/Fix Popover */}
+            {!isChampSelect && (
+              <div className="flex items-center gap-1 pl-1 border-l border-white/15 relative">
                 {gameState.pickedAugmentIds.map((aid) => {
                   const am = augments[aid]
                   if (!am) return null
@@ -764,6 +785,54 @@ export const MiniOverlay: React.FC = () => {
                     </button>
                   )
                 })}
+
+                {gameState.pickedAugmentIds.length < 4 && (
+                  <button
+                    onClick={() => setShowAugPicker((v) => !v)}
+                    title="手动补录或修正本局已拿海克斯（支持拼音如 zghs）"
+                    className="w-5 h-5 rounded bg-white/8 hover:bg-white/15 border border-dashed border-[#C8AA6E]/45 flex items-center justify-center text-[#E2C992] cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                )}
+
+                {showAugPicker && (
+                  <div className="absolute top-8 right-0 w-56 p-2 rounded-lg bg-[#09101D]/98 border border-[#C8AA6E]/55 shadow-2xl z-50 space-y-1.5 whitespace-normal">
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#111C2E] border border-white/15">
+                      <Search className="w-3 h-3 text-[#94A3B8]" />
+                      <input
+                        autoFocus
+                        value={augSearchQuery}
+                        onChange={(e) => setAugSearchQuery(e.target.value)}
+                        placeholder="搜海克斯 / 拼音 (zghs)"
+                        className="bg-transparent outline-none text-[11px] text-[#F0E6D2] w-full"
+                      />
+                    </div>
+                    <div className="max-h-44 overflow-y-auto space-y-0.5">
+                      {augSearchResults.map((am) => {
+                        const already = gameState.pickedAugmentIds.includes(am.id)
+                        return (
+                          <button
+                            key={am.id}
+                            disabled={already}
+                            onClick={() => {
+                              window.hexbuddy.updateAugments({
+                                pickedAugmentIds: [...gameState.pickedAugmentIds, am.id].slice(-4)
+                              })
+                              setShowAugPicker(false)
+                              setAugSearchQuery('')
+                            }}
+                            className="w-full px-1.5 py-1 rounded hover:bg-white/10 flex items-center gap-1.5 text-left text-[11px] text-[#F0E6D2] disabled:opacity-40 cursor-pointer"
+                          >
+                            {am.iconUrl && <img src={am.iconUrl} alt="" className="w-4 h-4 rounded" />}
+                            <span className="truncate flex-1">{am.name}</span>
+                            {already && <span className="text-[9px] text-[#0AC8B9]">已加</span>}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -808,11 +877,18 @@ export const MiniOverlay: React.FC = () => {
           {showShoppingDrawer && !isChampSelect && advice && (
             <div className="mt-2 px-4 py-3 rounded-xl bg-[#09101D]/95 border border-[#C8AA6E]/45 shadow-2xl space-y-2.5 max-w-3xl whitespace-normal">
               <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-bold text-[#F0E6D2]">{advice.headline}</span>
                   <span className="text-[11px] text-[#E2C992] tabular-nums">
                     当前金币: {gameState.currentGold}
                   </span>
+                  {copiedItemTip ? (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#0AC8B9]/25 text-[#5CF2E5] border border-[#0AC8B9]/45">
+                      {copiedItemTip}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-[#64748B]">（点击装备一键复制名称搜商店）</span>
+                  )}
                 </div>
 
                 <button
@@ -842,9 +918,13 @@ export const MiniOverlay: React.FC = () => {
 
               <div className="flex items-center gap-2 flex-wrap">
                 {advice.recommendedShoe && items[advice.recommendedShoe.itemId] && (
-                  <div
-                    title={advice.recommendedShoe.reason}
-                    className={`px-2 py-1.5 rounded-lg border flex items-center gap-1.5 ${
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleCopyShopItemName(items[advice.recommendedShoe!.itemId].name)
+                    }
+                    title={`${advice.recommendedShoe.reason}\n点击复制名称到商店搜索`}
+                    className={`px-2 py-1.5 rounded-lg border flex items-center gap-1.5 text-left cursor-pointer hover:border-[#0AC8B9] transition ${
                       advice.recommendedShoe.owned
                         ? 'bg-black/30 border-white/10 opacity-50'
                         : 'bg-[#121E32] border-[#C8AA6E]/30'
@@ -861,7 +941,7 @@ export const MiniOverlay: React.FC = () => {
                         {items[advice.recommendedShoe.itemId].name}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 )}
 
                 {advice.dynamicBuildPlan.map((step, idx) => {
@@ -870,9 +950,11 @@ export const MiniOverlay: React.FC = () => {
                   const isNext = nextStep?.itemId === step.itemId && !step.owned
                   return (
                     <React.Fragment key={step.itemId}>
-                      <div
-                        title={`${step.reason}\n${im.brief}`}
-                        className={`px-2.5 py-1.5 rounded-lg border flex items-center gap-2 transition ${
+                      <button
+                        type="button"
+                        onClick={() => handleCopyShopItemName(im.name)}
+                        title={`${step.reason}\n${im.brief}\n点击复制装备名`}
+                        className={`px-2.5 py-1.5 rounded-lg border flex items-center gap-2 text-left cursor-pointer hover:border-[#0AC8B9] transition ${
                           step.owned
                             ? 'bg-black/30 border-emerald-500/30 opacity-55'
                             : isNext
@@ -900,7 +982,7 @@ export const MiniOverlay: React.FC = () => {
                             {im.name}
                           </div>
                         </div>
-                      </div>
+                      </button>
                       {idx < advice.dynamicBuildPlan.length - 1 && (
                         <ArrowRight className="w-3 h-3 text-[#64748B]" />
                       )}
