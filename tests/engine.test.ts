@@ -18,6 +18,10 @@ import {
   smoothWinRate
 } from '../src/main/data/synergyEngine'
 import { computeLocalTacticalAdvice } from '../src/main/ai/advisorService'
+import {
+  compareSemver,
+  selectMatchingReleaseAsset
+} from '../src/main/updater/updateService'
 import type { AugmentMeta, GameLiveState, SeedBundle } from '../src/shared/types'
 
 function makePy(name: string): { pinyinFull: string; pinyinInitials: string } {
@@ -367,5 +371,29 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     expect(resolveHoveredAugmentSlot(1380, 700, 3440, 1440)).toBe(0)
     expect(resolveHoveredAugmentSlot(1720, 700, 3440, 1440)).toBe(1)
     expect(resolveHoveredAugmentSlot(2150, 700, 3440, 1440)).toBe(2)
+  })
+
+  it('compares semver versions and selects matching Setup vs Portable Windows assets', () => {
+    expect(compareSemver('v0.3.1', '0.3.0')).toBe(1)
+    expect(compareSemver('0.3.0', 'v0.3.0')).toBe(0)
+    expect(compareSemver('0.2.9', '0.3.0')).toBe(-1)
+    expect(compareSemver('v1.0.0', '0.9.9')).toBe(1)
+
+    const assets = [
+      {
+        name: 'HexBuddy-Portable-0.3.1.exe',
+        size: 91000000,
+        digest: 'sha256:aaa',
+        browser_download_url: 'https://example.com/portable.exe'
+      },
+      {
+        name: 'HexBuddy-Setup-0.3.1.exe',
+        size: 104000000,
+        digest: 'sha256:bbb',
+        browser_download_url: 'https://example.com/setup.exe'
+      }
+    ]
+    expect(selectMatchingReleaseAsset(assets, false)?.name).toBe('HexBuddy-Setup-0.3.1.exe')
+    expect(selectMatchingReleaseAsset(assets, true)?.name).toBe('HexBuddy-Portable-0.3.1.exe')
   })
 })

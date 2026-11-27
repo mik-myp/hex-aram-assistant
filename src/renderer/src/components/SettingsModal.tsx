@@ -1,22 +1,33 @@
 import React, { useState } from 'react'
 import {
+  ArrowUpCircle,
   Check,
   Database,
+  Download,
   ExternalLink,
   KeyRound,
   Keyboard,
+  Loader2,
   RefreshCw,
+  Rocket,
   ScanEye,
   Shield,
   Users,
   X
 } from 'lucide-react'
-import type { AiSettings, DatasetMetadata, HeroRole, UserPreferences } from '@shared/types'
+import type {
+  AiSettings,
+  AppUpdateState,
+  DatasetMetadata,
+  HeroRole,
+  UserPreferences
+} from '@shared/types'
 
 interface SettingsModalProps {
   settings: AiSettings
   prefs: UserPreferences
   meta: DatasetMetadata
+  updateState: AppUpdateState | null
   syncing: boolean
   onSwitchDataset: (path: string, band: 'all' | 'high') => void
   onSyncNow: () => void
@@ -60,6 +71,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   prefs,
   meta,
+  updateState,
   syncing,
   onSwitchDataset,
   onSyncNow,
@@ -115,6 +127,125 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-5 text-sm max-h-[82vh] overflow-y-auto">
+          {/* 0. App Version & Online Self-Update */}
+          {updateState && (
+            <section className="p-3.5 rounded-lg bg-[#0D1728] border border-[#C8AA6E]/30 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <ArrowUpCircle className="w-4 h-4 text-[#0AC8B9]" />
+                  <span className="font-semibold text-[#F0E6D2]">
+                    软件版本：v{updateState.currentVersion}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-white/8 text-[#94A3B8] text-[10px]">
+                    {updateState.isPortable ? '免安装便携版' : '标准安装版'}
+                  </span>
+                  {updateState.phase === 'up-to-date' && (
+                    <span className="text-[11px] text-emerald-400">✓ 已是最新版本</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={updateState.phase === 'checking' || updateState.phase === 'downloading'}
+                    onClick={() => window.hexbuddy.checkForUpdates()}
+                    className="px-2.5 py-1 rounded bg-[#141F30] hover:bg-[#1C2B42] border border-[#C8AA6E]/30 text-[#C8C1B2] flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                  >
+                    {updateState.phase === 'checking' ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-[#0AC8B9]" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3 text-[#C8AA6E]" />
+                    )}
+                    <span>{updateState.phase === 'checking' ? '检查中...' : '检查软件更新'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => window.hexbuddy.openExternal(updateState.releasePageUrl)}
+                    className="px-2 py-1 rounded bg-[#141F30] hover:bg-[#1C2B42] border border-white/10 text-[#94A3B8] hover:text-[#F0E6D2] flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>发布页</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {updateState.hasUpdate && (
+                <div className="p-2.5 rounded bg-[#081220] border border-[#0AC8B9]/35 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div>
+                      <span className="font-bold text-[#5CF2E5]">
+                        发现新版本 v{updateState.latestVersion}
+                      </span>
+                      {updateState.assetSize > 0 && (
+                        <span className="ml-2 text-[#94A3B8] tabular-nums">
+                          ({(updateState.assetSize / 1024 / 1024).toFixed(1)} MB · SHA-256 官方签名校验)
+                        </span>
+                      )}
+                    </div>
+
+                    {updateState.phase === 'downloaded' ? (
+                      <button
+                        type="button"
+                        onClick={() => window.hexbuddy.installUpdate()}
+                        className="px-3 py-1 rounded bg-[#0AC8B9] hover:bg-[#3CE6D8] text-[#06131C] font-bold flex items-center gap-1 cursor-pointer shadow"
+                      >
+                        <Rocket className="w-3.5 h-3.5" />
+                        <span>立即重启并升级</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={updateState.phase === 'downloading'}
+                        onClick={() => window.hexbuddy.downloadUpdate()}
+                        className="px-3 py-1 rounded bg-[#C8AA6E] hover:bg-[#E2C992] text-[#070B12] font-bold flex items-center gap-1 cursor-pointer disabled:opacity-60"
+                      >
+                        {updateState.phase === 'downloading' ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5" />
+                        )}
+                        <span>
+                          {updateState.phase === 'downloading'
+                            ? `正在下载 ${updateState.downloadPercent}%`
+                            : '一键下载并更新'}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+
+                  {updateState.phase === 'downloading' && (
+                    <div className="space-y-1">
+                      <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          style={{ width: `${updateState.downloadPercent}%` }}
+                          className="h-full bg-[#0AC8B9] transition-all"
+                        />
+                      </div>
+                      <div className="flex justify-between text-[10px] text-[#94A3B8] tabular-nums">
+                        <span>支持多节点自动回退加速 · 下载完成后自动校验 SHA-256</span>
+                        <span>
+                          {(updateState.transferredBytes / 1024 / 1024).toFixed(1)} /{' '}
+                          {(updateState.assetSize / 1024 / 1024).toFixed(1)} MB
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {updateState.releaseNotes && (
+                    <div className="max-h-24 overflow-y-auto text-[11px] text-[#C8C1B2] whitespace-pre-wrap border-t border-white/10 pt-1.5 leading-relaxed">
+                      {updateState.releaseNotes}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {updateState.errorMessage && (
+                <div className="text-[11px] text-rose-400">{updateState.errorMessage}</div>
+              )}
+            </section>
+          )}
+
           {/* 1. HUD & Tray Behavior */}
           <section className="space-y-2.5">
             <div className="flex items-center gap-2 text-[#E2C992] font-medium">

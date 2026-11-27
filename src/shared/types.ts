@@ -311,3 +311,30 @@ export interface AiSettings {
   shortcutOverlay: string
   shortcutOcr: string
 }
+
+export type UpdatePhase =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'up-to-date'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+
+export interface AppUpdateState {
+  phase: UpdatePhase
+  currentVersion: string
+  isPortable: boolean
+  latestVersion: string | null
+  hasUpdate: boolean
+  releaseNotes: string
+  publishedAt: string | null
+  releasePageUrl: string
+  assetName: string | null
+  assetSize: number
+  downloadPercent: number
+  transferredBytes: number
+  downloadedFilePath: string | null
+  errorMessage?: string
+  checkedAt: number | null
+}

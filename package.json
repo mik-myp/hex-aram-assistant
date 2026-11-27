@@ -1,6 +1,6 @@
 {
   "name": "hex-aram-assistant",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "HexBuddy (海斗军师) — 英雄联盟端游海克斯大乱斗新手桌面助手（100% 纯只读安全模式）",
   "main": "./out/main/index.js",
   "author": "mik-myp",

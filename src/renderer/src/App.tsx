@@ -7,6 +7,7 @@ import { MiniOverlay } from './components/MiniOverlay'
 import { SettingsModal } from './components/SettingsModal'
 import type {
   AiSettings,
+  AppUpdateState,
   AugmentMeta,
   DatasetMetadata,
   GameLiveState,
@@ -36,6 +37,7 @@ const MainWorkspace: React.FC = () => {
   const [gameState, setGameState] = useState<GameLiveState | null>(null)
   const [settings, setSettings] = useState<AiSettings | null>(null)
   const [prefs, setPrefs] = useState<UserPreferences | null>(null)
+  const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
 
   const [mainView, setMainView] = useState<'heroes' | 'augments'>('heroes')
   const [dexFocusAugmentId, setDexFocusAugmentId] = useState<string | null>(null)
@@ -62,6 +64,7 @@ const MainWorkspace: React.FC = () => {
       setGameState(boot.gameState)
       setSettings(boot.settings)
       setPrefs(boot.prefs)
+      setUpdateState(boot.updateState)
 
       const sorted = Object.values(boot.heroes).sort(
         (a, b) => b.smoothedWinRate - a.smoothedWinRate
@@ -75,10 +78,14 @@ const MainWorkspace: React.FC = () => {
     const unsubPrefs = window.hexbuddy.onPrefsUpdated((nextPrefs) => {
       setPrefs(nextPrefs)
     })
+    const unsubUpdater = window.hexbuddy.onUpdateStateChanged((nextUpd) => {
+      setUpdateState(nextUpd)
+    })
 
     return () => {
       unsubGame()
       unsubPrefs()
+      unsubUpdater()
     }
   }, [])
 
@@ -149,6 +156,7 @@ const MainWorkspace: React.FC = () => {
     >
       <SimulatorBar
         gameState={gameState}
+        updateState={updateState}
         mainView={mainView}
         onChangeMainView={setMainView}
         onSelectSimScene={(scene) => {
@@ -213,6 +221,7 @@ const MainWorkspace: React.FC = () => {
           settings={settings}
           prefs={prefs}
           meta={meta}
+          updateState={updateState}
           syncing={syncing}
           onSwitchDataset={handleSwitchDataset}
           onSyncNow={handleSyncNow}

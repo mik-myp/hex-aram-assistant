@@ -13,6 +13,7 @@ import {
   Tray
 } from 'electron'
 import { DataSyncService } from './data/syncService'
+import { AppUpdateService } from './updater/updateService'
 import {
   buildAugmentReverseDetail,
   buildHeroDetailGuide,
@@ -64,6 +65,7 @@ const DEFAULT_PREFS: UserPreferences = {
 }
 
 const syncService = new DataSyncService()
+const updateService = new AppUpdateService()
 let mainWindow: BrowserWindow | null = null
 let hudWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -510,6 +512,13 @@ function createSystemTray(): void {
         label: '手动识别当前三选一 (Alt+S)',
         click: () => triggerManualHudOcr()
       },
+      {
+        label: '检查软件版本更新...',
+        click: () => {
+          showMainWindow()
+          updateService.checkForUpdates().catch(() => {})
+        }
+      },
       { type: 'separator' },
       {
         label: '彻底退出 HexBuddy',
@@ -645,6 +654,7 @@ function setupIpcHandlers(): void {
       gameState,
       settings: currentSettings,
       prefs: currentPrefs,
+      updateState: updateService.getState(),
       miniClickThrough: true
     }
   })
@@ -855,6 +865,24 @@ function setupIpcHandlers(): void {
       shell.openExternal(url)
     }
   })
+
+  ipcMain.handle('updater:get-state', () => {
+    return updateService.getState()
+  })
+
+  ipcMain.handle('updater:check', async () => {
+    return updateService.checkForUpdates()
+  })
+
+  ipcMain.handle('updater:download', async () => {
+    return updateService.downloadUpdate()
+  })
+
+  ipcMain.handle('updater:install', async () => {
+    return updateService.installDownloadedUpdate(() => {
+      isQuitting = true
+    })
+  })
 }
 
 app.whenReady().then(async () => {
@@ -888,6 +916,17 @@ app.whenReady().then(async () => {
   }, 300)
 
   syncService.checkAndSync(false).catch(() => {})
+
+  updateService.onStateChanged((st) => {
+    for (const win of [mainWindow, hudWindow]) {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('updater:state-updated', st)
+      }
+    }
+  })
+  setTimeout(() => {
+    updateService.checkForUpdates().catch(() => {})
+  }, 2500)
 
   app.on('activate', () => {
     showMainWindow()

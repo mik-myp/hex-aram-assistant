@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import {
+  ArrowUpCircle,
   BookMarked,
   Compass,
   Copy,
@@ -10,10 +11,11 @@ import {
   Square,
   X
 } from 'lucide-react'
-import type { GameLiveState } from '@shared/types'
+import type { AppUpdateState, GameLiveState } from '@shared/types'
 
 interface SimulatorBarProps {
   gameState: GameLiveState
+  updateState: AppUpdateState | null
   mainView: 'heroes' | 'augments'
   onChangeMainView: (v: 'heroes' | 'augments') => void
   onSelectSimScene: (scene: 'off' | 'champ-select' | 'level-7-pick' | 'fountain-buy') => void
@@ -23,6 +25,7 @@ interface SimulatorBarProps {
 
 export const SimulatorBar: React.FC<SimulatorBarProps> = ({
   gameState,
+  updateState,
   mainView,
   onChangeMainView,
   onSelectSimScene,
@@ -79,6 +82,23 @@ export const SimulatorBar: React.FC<SimulatorBarProps> = ({
       {/* Right: Action Buttons + Custom Frameless Window Controls on Windows/Linux */}
       <div className="app-no-drag flex items-center h-full">
         <div className="flex items-center gap-2 pr-3">
+          {updateState?.hasUpdate && (
+            <button
+              onClick={onOpenSettings}
+              title="发现新版本，点击查看并一键在线升级"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-[#0AC8B9]/20 hover:bg-[#0AC8B9]/30 text-[#5CF2E5] border border-[#0AC8B9]/55 shadow-[0_0_12px_rgba(10,200,185,0.2)] cursor-pointer transition"
+            >
+              <ArrowUpCircle className="w-3.5 h-3.5" />
+              <span>
+                {updateState.phase === 'downloading'
+                  ? `下载更新 ${updateState.downloadPercent}%`
+                  : updateState.phase === 'downloaded'
+                    ? `v${updateState.latestVersion} 已就绪·点击安装`
+                    : `新版本 v${updateState.latestVersion}`}
+              </span>
+            </button>
+          )}
+
           <div className="relative">
             <button
               onClick={() => setShowDemoMenu(!showDemoMenu)}

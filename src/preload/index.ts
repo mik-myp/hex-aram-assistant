@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AiSettings,
+  AppUpdateState,
   AugmentMeta,
   AugmentReverseDetail,
   BenchSuggestion,
@@ -24,6 +25,7 @@ export interface HexBuddyApi {
     gameState: GameLiveState
     settings: AiSettings
     prefs: UserPreferences
+    updateState: AppUpdateState
     miniClickThrough: boolean
   }>
   getHeroGuide: (heroId: string) => Promise<HeroDetailGuide | null>
@@ -79,9 +81,14 @@ export interface HexBuddyApi {
   closeMain: () => Promise<void>
   setHudInteractive: (interactive: boolean) => Promise<void>
   openExternal: (url: string) => Promise<void>
+  getUpdateState: () => Promise<AppUpdateState>
+  checkForUpdates: () => Promise<AppUpdateState>
+  downloadUpdate: () => Promise<AppUpdateState>
+  installUpdate: () => Promise<{ ok: boolean; message?: string }>
   onGameStateUpdated: (cb: (state: GameLiveState) => void) => () => void
   onOcrResult: (cb: (res: OcrRecognizeResult) => void) => () => void
   onPrefsUpdated: (cb: (prefs: UserPreferences) => void) => () => void
+  onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
   onWindowMaximizedChanged: (cb: (maximized: boolean) => void) => () => void
 }
 
@@ -112,6 +119,10 @@ const api: HexBuddyApi = {
   closeMain: () => ipcRenderer.invoke('window:close-main'),
   setHudInteractive: (interactive) => ipcRenderer.invoke('window:set-hud-interactive', interactive),
   openExternal: (url) => ipcRenderer.invoke('window:open-external', url),
+  getUpdateState: () => ipcRenderer.invoke('updater:get-state'),
+  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+  downloadUpdate: () => ipcRenderer.invoke('updater:download'),
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
   onGameStateUpdated: (cb) => {
     const handler = (_: unknown, state: GameLiveState): void => cb(state)
     ipcRenderer.on('game:state-updated', handler)
@@ -126,6 +137,11 @@ const api: HexBuddyApi = {
     const handler = (_: unknown, prefs: UserPreferences): void => cb(prefs)
     ipcRenderer.on('prefs:updated', handler)
     return () => ipcRenderer.removeListener('prefs:updated', handler)
+  },
+  onUpdateStateChanged: (cb) => {
+    const handler = (_: unknown, st: AppUpdateState): void => cb(st)
+    ipcRenderer.on('updater:state-updated', handler)
+    return () => ipcRenderer.removeListener('updater:state-updated', handler)
   },
   onWindowMaximizedChanged: (cb) => {
     const handler = (_: unknown, maximized: boolean): void => cb(maximized)
