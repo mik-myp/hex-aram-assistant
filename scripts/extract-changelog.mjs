@@ -49,13 +49,55 @@ export function extractChangelogSection(changelogText, rawVersion) {
 const isCliEntry =
   process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))
 
-if (isCliEntry) {
-  const targetTag = process.argv[2] || ''
-  const outPath = process.argv[3] || ''
-  const changelogPath = resolve(process.cwd(), 'CHANGELOG.md')
+const RELEASE_FOOTER = `
 
+---
+
+### 📥 下载说明
+- **安装版（推荐）**：\`HexBuddy-Setup-{ver}.exe\`，支持自定义安装路径与桌面快捷方式。
+- **免安装便携版**：\`HexBuddy-Portable-{ver}.exe\`，单文件双击即用。
+- 已安装旧版本的用户可在「助手设置 → 版本更新与环境自检」中在线更新。
+
+> 本工具仅调用官方只读接口，不读写游戏内存、不注入、不修改任何游戏文件。完整历史见 [CHANGELOG.md](https://github.com/mik-myp/hex-aram-assistant/blob/main/CHANGELOG.md)。`
+
+/** Returns every released version tag (e.g. `v0.4.0`) that has its own section in CHANGELOG.md. */
+export function listChangelogVersions(changelogText) {
+  return [...changelogText.matchAll(/^##\s+\[v?(\d+\.\d+\.\d+[^\]]*)\]/gim)].map((m) => `v${m[1]}`)
+}
+
+/**
+ * Builds the GitHub Release body for a tag. Strict: throws if the exact version section is missing,
+ * so CI fails loudly instead of publishing a placeholder body.
+ */
+export function buildReleaseBody(changelogText, rawVersion) {
+  const cleanVer = (rawVersion || '').trim().replace(/^[vV]/, '')
+  if (!cleanVer) throw new Error('[extract-changelog] Missing version/tag argument')
+  if (!listChangelogVersions(changelogText).includes(`v${cleanVer}`)) {
+    throw new Error(`[extract-changelog] CHANGELOG.md has no "## [v${cleanVer}]" section`)
+  }
+  return extractChangelogSection(changelogText, cleanVer) + RELEASE_FOOTER.replaceAll('{ver}', cleanVer)
+}
+
+if (isCliEntry) {
+  const args = process.argv.slice(2)
+  const isRelease = args.includes('--release')
+  const listOnly = args.includes('--list')
+  const [targetTag = '', outPath = ''] = args.filter((a) => !a.startsWith('--'))
+  const changelogPath = resolve(process.cwd(), 'CHANGELOG.md')
   const raw = await readFile(changelogPath, 'utf-8')
-  const extracted = extractChangelogSection(raw, targetTag)
+
+  if (listOnly) {
+    process.stdout.write(`${listChangelogVersions(raw).join('\n')}\n`)
+    process.exit(0)
+  }
+
+  let extracted
+  try {
+    extracted = isRelease ? buildReleaseBody(raw, targetTag) : extractChangelogSection(raw, targetTag)
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
 
   if (outPath) {
     const absOut = resolve(process.cwd(), outPath)

@@ -1,0 +1,36 @@
+name: Sync Release Notes from CHANGELOG
+
+# Keeps every published GitHub Release body in sync with its CHANGELOG.md section,
+# so editing CHANGELOG.md on main also fixes the notes of already-published releases.
+on:
+  push:
+    branches: [main]
+    paths: [CHANGELOG.md, scripts/extract-changelog.mjs]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Update existing releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for tag in $(node scripts/extract-changelog.mjs --list); do
+            if gh release view "$tag" >/dev/null 2>&1; then
+              node scripts/extract-changelog.mjs "$tag" "notes-$tag.md" --release
+              gh release edit "$tag" --notes-file "notes-$tag.md"
+              echo "Synced $tag"
+            else
+              echo "Skip $tag (no published release yet)"
+            fi
+          done

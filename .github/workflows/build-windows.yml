@@ -33,6 +33,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Runs early so a missing CHANGELOG section fails fast before the slow Windows build.
+      # bash is required: on windows-latest the default pwsh treats "${GITHUB_REF_NAME}" as an empty PS variable.
+      - name: Extract Chinese release notes from CHANGELOG.md
+        shell: bash
+        run: node scripts/extract-changelog.mjs "${{ github.ref_name }}" release-notes.md --release
+
       - name: Refresh latest ARAM Mayhem stats seed
         continue-on-error: true
         run: pnpm fetch-seed
@@ -45,9 +51,6 @@ jobs:
 
       - name: Build Windows Installer (NSIS) & Portable (.exe)
         run: pnpm dist:win
-
-      - name: Extract structured Chinese release notes from CHANGELOG.md
-        run: node scripts/extract-changelog.mjs "${GITHUB_REF_NAME}" release/release-notes.md
 
       - name: Upload Windows .exe Artifacts
         uses: actions/upload-artifact@v4
@@ -62,7 +65,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          body_path: release/release-notes.md
+          body_path: release-notes.md
           generate_release_notes: false
           files: |
             release/*-Setup-*.exe

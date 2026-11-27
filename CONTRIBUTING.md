@@ -99,3 +99,5 @@ Renderer Features (features/*)
 ### 6.3 面向玩家的 `CHANGELOG.md` 与发版闭环
 - 在 [`CHANGELOG.md`](./CHANGELOG.md) 中使用玩家可读的中文分组（`### ✨ 新增功能` / `### ⚡ 体验与性能优化` / `### 🐛 问题修复`）记录变更。
 - **仅在确认需要构建并发布正式 Windows 安装包（`Setup.exe`）与便携包（`Portable.exe`）时推送 `v*` 标签**；CI 会自动调用 `scripts/extract-changelog.mjs` 将对应版本中文说明同步至 GitHub Release 与客户端在线更新面板。
+- **打标签前必须先在 `CHANGELOG.md` 写好 `## [vX.Y.Z] - YYYY-MM-DD` 段落**：构建流程第一步即以 `--release` 严格模式提取该段落作为 Release 正文（附下载说明），缺失时 CI 直接失败，不会发布空白说明。
+- **发布后修订说明**：直接修改 `main` 上的 `CHANGELOG.md` 并推送，`sync-release-notes.yml` 会自动把所有已发布版本的 Release 正文同步为最新内容；也可在 Actions 页手动触发。
