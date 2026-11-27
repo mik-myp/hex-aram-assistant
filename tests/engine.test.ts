@@ -17,12 +17,23 @@ import {
   computeBenchSuggestions,
   smoothWinRate
 } from '../src/main/data/synergyEngine'
-import { computeLocalTacticalAdvice } from '../src/main/ai/advisorService'
+import { computeLocalTacticalAdvice } from '../src/main/ai/tacticalEngine'
 import { buildDiagnosticSummary, logDiag } from '../src/main/logger/diagLogger'
 import {
   compareSemver,
   selectMatchingReleaseAsset
 } from '../src/main/updater/updateService'
+import {
+  buildConfigBackupJson,
+  CURRENT_CONFIG_SCHEMA_VERSION,
+  parseConfigBackupJson,
+  sanitizeAiSettings,
+  sanitizeUserPreferences
+} from '../src/shared/configSchema'
+import {
+  extractChangelogSection,
+  parseReleaseNotesMarkdown
+} from '../src/shared/changelogParser'
 import type { AugmentMeta, GameLiveState, SeedBundle } from '../src/shared/types'
 
 function makePy(name: string): { pinyinFull: string; pinyinInitials: string } {
@@ -297,17 +308,13 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
 
   it('preserves exact LCU bench slot indices for spatial portrait badges and validates 16.23 seed', () => {
     const bundle = createMockBundle()
-    const bench = computeBenchSuggestions(bundle, '54', ['54'], ['36', '10'], {
-      favoriteHeroIds: ['10'],
-      preferredRoles: [],
-      overlayOpacity: 'solid',
-      autoOcrOnMilestone: true,
-      minimizeToTray: true,
-      badgePosition: 'top',
-      autoHideWhenUnfocused: true,
-      hudOffsetX: 0,
-      hudOffsetY: 0
-    })
+    const bench = computeBenchSuggestions(
+      bundle,
+      '54',
+      ['54'],
+      ['36', '10'],
+      sanitizeUserPreferences({ favoriteHeroIds: ['10'] })
+    )
     expect(bench[0].benchIndex).toBe(0)
     expect(bench[0].heroId).toBe('36')
     expect(bench[1].benchIndex).toBe(1)
@@ -411,5 +418,55 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     expect(summary.leagueElevatedMismatch).toBe(true)
     expect(summary.formattedReport).toContain('2560x1440')
     expect(summary.formattedReport).toContain('Simulated diagnostic check ok')
+  })
+
+  it('sanitizes legacy preferences, clamps out-of-range scales, and redacts API keys on config backup', () => {
+    const migrated = sanitizeUserPreferences({
+      favoriteHeroIds: ['10', '10', '  54 '],
+      preferredRoles: ['mage', 'invalid_role', 'mage'],
+      hudScale: 9.9,
+      hudOffsetX: -25,
+      hudOffsetY: 12.4,
+      overlayOpacity: 'unknown',
+      defaultPlaystyle: 'torment'
+    })
+    expect(migrated.schemaVersion).toBe(CURRENT_CONFIG_SCHEMA_VERSION)
+    expect(migrated.favoriteHeroIds).toEqual(['10', '54'])
+    expect(migrated.preferredRoles).toEqual(['mage'])
+    expect(migrated.hudScale).toBe(1.3)
+    expect(migrated.hudOffsetX).toBe(-8)
+    expect(migrated.hudOffsetY).toBe(8)
+    expect(migrated.overlayOpacity).toBe('solid')
+    expect(migrated.defaultPlaystyle).toBe('torment')
+    expect(migrated.enableBenchBadges).toBe(true)
+
+    const ai = sanitizeAiSettings({
+      apiKey: '  sk-secret-12345  ',
+      toneStyle: 'witty',
+      shortcutCycleMindset: 'Alt+M'
+    })
+    const exported = buildConfigBackupJson(migrated, ai)
+    expect(exported).not.toContain('sk-secret-12345')
+
+    const restored = parseConfigBackupJson(exported, 'sk-local-preserved')
+    expect(restored.settings.apiKey).toBe('sk-local-preserved')
+    expect(restored.settings.toneStyle).toBe('witty')
+    expect(restored.prefs.defaultPlaystyle).toBe('torment')
+  })
+
+  it('extracts Chinese CHANGELOG sections and parses structured release notes cards', () => {
+    const changelogMd = readFileSync(resolve(__dirname, '../CHANGELOG.md'), 'utf-8')
+    const v032Body = extractChangelogSection(changelogMd, 'v0.3.2')
+    expect(v032Body).toContain('WeGame 管理员权限对等检测')
+    expect(v032Body).not.toContain('v0.3.1')
+
+    const v040Body = extractChangelogSection(changelogMd, 'v0.4.0')
+    expect(v040Body).toContain('独立设置中心')
+
+    const parsed = parseReleaseNotesMarkdown(v032Body)
+    expect(parsed.summaryLine).toContain('版本核心')
+    expect(parsed.sections.some((s) => s.tone === 'added')).toBe(true)
+    expect(parsed.sections.some((s) => s.tone === 'improved')).toBe(true)
+    expect(parsed.sections.some((s) => s.tone === 'fixed')).toBe(true)
   })
 })

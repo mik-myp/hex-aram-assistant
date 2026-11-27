@@ -5,25 +5,25 @@ import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, shell } from 'electron'
 import type { AppUpdateState } from '@shared/types'
+import {
+  compareSemver,
+  fetchFallbackChangelogSection,
+  normalizeVersion,
+  selectMatchingReleaseAsset,
+  type GithubReleaseAsset
+} from './changelogFallback'
+
+export { compareSemver, normalizeVersion, selectMatchingReleaseAsset }
 
 const GITHUB_REPO = 'mik-myp/hex-aram-assistant'
 const RELEASE_API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
 const RELEASES_PAGE_URL = `https://github.com/${GITHUB_REPO}/releases/latest`
 
-// Accelerated download mirrors used ONLY as fallback if direct GitHub download stalls/fails.
-// Every byte is cryptographically verified against the official SHA-256 digest from api.github.com!
 const DOWNLOAD_MIRROR_PREFIXES = [
-  '', // 1st try: Direct official GitHub Releases CDN
+  '',
   'https://ghfast.top/',
   'https://gh-proxy.com/'
 ]
-
-interface GithubReleaseAsset {
-  name: string
-  size: number
-  digest?: string | null
-  browser_download_url: string
-}
 
 interface GithubLatestRelease {
   tag_name: string
@@ -31,50 +31,6 @@ interface GithubLatestRelease {
   body?: string | null
   published_at?: string | null
   assets?: GithubReleaseAsset[]
-}
-
-export function normalizeVersion(ver: string): string {
-  return ver.trim().replace(/^[vV]/, '').split('-')[0]
-}
-
-/**
- * Returns 1 if `a > b`, -1 if `a < b`, 0 if equal.
- */
-export function compareSemver(a: string, b: string): -1 | 0 | 1 {
-  const pa = normalizeVersion(a)
-    .split('.')
-    .map((n) => Number.parseInt(n, 10) || 0)
-  const pb = normalizeVersion(b)
-    .split('.')
-    .map((n) => Number.parseInt(n, 10) || 0)
-  const len = Math.max(pa.length, pb.length, 3)
-  for (let i = 0; i < len; i++) {
-    const va = pa[i] ?? 0
-    const vb = pb[i] ?? 0
-    if (va > vb) return 1
-    if (va < vb) return -1
-  }
-  return 0
-}
-
-export function selectMatchingReleaseAsset(
-  assets: GithubReleaseAsset[],
-  isPortable: boolean
-): GithubReleaseAsset | null {
-  const exeAssets = assets.filter((a) => a.name.toLowerCase().endsWith('.exe'))
-  if (exeAssets.length === 0) return null
-
-  if (isPortable) {
-    return (
-      exeAssets.find((a) => /portable/i.test(a.name)) ||
-      exeAssets[0]
-    )
-  }
-  return (
-    exeAssets.find((a) => /setup/i.test(a.name)) ||
-    exeAssets.find((a) => !/portable/i.test(a.name)) ||
-    exeAssets[0]
-  )
 }
 
 export class AppUpdateService {
@@ -145,8 +101,6 @@ export class AppUpdateService {
       if (res.ok) {
         data = (await res.json()) as GithubLatestRelease
       } else {
-        // Fallback when unauthenticated api.github.com hits shared-NAT 60/hr 403 rate limit:
-        // Follow github.com/.../releases/latest 302 redirect -> /releases/tag/vX.Y.Z (never rate-limited!)
         const htmlRes = await fetch(RELEASES_PAGE_URL, {
           method: 'HEAD',
           redirect: 'follow',
@@ -159,10 +113,11 @@ export class AppUpdateService {
         const tag = decodeURIComponent(tagMatch[1])
         const ver = normalizeVersion(tag)
         const dlBase = `https://github.com/${GITHUB_REPO}/releases/download/${tag}`
+        const fallbackNotes = await fetchFallbackChangelogSection(GITHUB_REPO, tag, ver)
         data = {
           tag_name: tag,
           html_url: `https://github.com/${GITHUB_REPO}/releases/tag/${tag}`,
-          body: '',
+          body: fallbackNotes,
           published_at: null,
           assets: [
             {
@@ -190,7 +145,6 @@ export class AppUpdateService {
       const matchedAsset = selectMatchingReleaseAsset(data.assets || [], this.state.isPortable)
       this.selectedAsset = matchedAsset
 
-      // Check if we already downloaded & verified this exact file earlier in the session
       let existingVerifiedPath: string | null = null
       if (hasUpdate && matchedAsset) {
         const candidatePath = join(app.getPath('temp'), 'hexbuddy-updates', matchedAsset.name)
@@ -243,7 +197,6 @@ export class AppUpdateService {
       return this.getState()
     }
 
-    // On non-Windows (e.g. macOS dev), open the GitHub Release page directly
     if (process.platform !== 'win32') {
       shell.openExternal(this.state.releasePageUrl)
       return this.getState()
@@ -261,7 +214,9 @@ export class AppUpdateService {
     let lastErr: Error | null = null
 
     for (const prefix of DOWNLOAD_MIRROR_PREFIXES) {
-      const targetUrl = prefix ? `${prefix}${asset.browser_download_url}` : asset.browser_download_url
+      const targetUrl = prefix
+        ? `${prefix}${asset.browser_download_url}`
+        : asset.browser_download_url
       try {
         await rm(partPath, { force: true }).catch(() => {})
         this.activeAbort = new AbortController()
@@ -272,7 +227,13 @@ export class AppUpdateService {
           errorMessage: undefined
         })
 
-        await this.streamAndVerifyFile(targetUrl, partPath, asset.size, expectedSha256, this.activeAbort.signal)
+        await this.streamAndVerifyFile(
+          targetUrl,
+          partPath,
+          asset.size,
+          expectedSha256,
+          this.activeAbort.signal
+        )
         await rm(finalPath, { force: true }).catch(() => {})
         await rename(partPath, finalPath)
         this.activeAbort = null
@@ -371,13 +332,9 @@ export class AppUpdateService {
     }
   }
 
-  /**
-   * Launches the cryptographically verified update package and exits the current instance cleanly:
-   * - NSIS Installed mode: spawns `HexBuddy-Setup-x.y.z.exe` detached and quits.
-   * - Portable single-exe mode: runs a tiny hidden `.cmd` replacer after process exit to overwrite
-   *   `PORTABLE_EXECUTABLE_FILE` and relaunch the updated Portable `.exe`!
-   */
-  async installDownloadedUpdate(prepareQuit: () => void): Promise<{ ok: boolean; message?: string }> {
+  async installDownloadedUpdate(
+    prepareQuit: () => void
+  ): Promise<{ ok: boolean; message?: string }> {
     const filePath = this.state.downloadedFilePath
     if (!filePath || !existsSync(filePath)) {
       return { ok: false, message: '尚未下载更新安装包' }

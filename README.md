@@ -1,7 +1,7 @@
 # HexBuddy（海斗军师）
 
 <p>
-  <a href="https://github.com/mik-myp/hex-aram-assistant/releases/latest"><img src="./docs/badges/release.svg" alt="Release v0.3.0" /></a>
+  <a href="https://github.com/mik-myp/hex-aram-assistant/releases/latest"><img src="./docs/badges/release.svg" alt="Release v0.4.0" /></a>
   <img src="./docs/badges/safety.svg" alt="100% Read-Only Safe" />
   <img src="./docs/badges/platform.svg" alt="Windows 10/11" />
   <img src="./docs/badges/license.svg" alt="CC BY-NC 4.0" />
@@ -82,6 +82,10 @@
 | :--- | :--- |
 | `Alt + H`（macOS: `Option + H`） | 显示 / 隐藏局内原位空间 HUD（可在设置中自定义） |
 | `Alt + S`（macOS: `Option + S`） | 手动触发一次当前屏幕三选一海克斯 OCR 识别（可在设置中自定义） |
+| `Alt + M`（macOS: `Option + M`） | 局内循环切换 5 种决策倾向（稳健 / 针对 / 团队 / 独爽 / 折磨） |
+| `Ctrl + K`（macOS: `Cmd + K`，主窗口内） | 全局拼音速查：英雄、海克斯、装备与设置项一键直达 |
+
+> 所有全局快捷键均可在主窗口 **「助手设置 → 快捷键与识别」** 中点击后直接按键录制，并自动检测冲突。
 
 ---
 
@@ -118,7 +122,7 @@ pnpm dist:win
 
 macOS 可使用攻略图鉴和 HUD 演练。游戏窗口边界追踪及切出游戏时自动隐藏 HUD 依赖 Win32，macOS 版没有这些功能。
 
-> **CI/CD 说明**：仓库内置 [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml)，仅在推送 `v*` 标签（如 `git tag v0.3.0 && git push origin v0.3.0`）时自动在 `windows-latest` 构建 `Setup` 与 `Portable` 双版本 `.exe` 并发布至 GitHub Releases；日常推送 `main` 分支不会触发打包。
+> **CI/CD 说明**：仓库内置 [`.github/workflows/build-windows.yml`](.github/workflows/build-windows.yml)，仅在推送 `v*` 标签（如 `git tag v0.4.0 && git push origin v0.4.0`）时自动在 `windows-latest` 构建 `Setup` 与 `Portable` 双版本 `.exe` 并发布至 GitHub Releases；日常推送 `main` 分支不会触发打包。
 
 ---
 

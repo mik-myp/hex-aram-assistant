@@ -57,15 +57,15 @@ export const TierRadar: React.FC<TierRadarProps> = ({
   }, [heroes, query, role, favSet])
 
   return (
-    <aside className="w-60 shrink-0 border-r border-[#C8AA6E]/20 bg-[#090F1A] flex flex-col h-full">
-      <div className="p-2.5 space-y-2 border-b border-[#C8AA6E]/15">
+    <aside className="w-64 shrink-0 border-r border-border bg-[#090F1A] flex flex-col h-full">
+      <div className="p-2.5 space-y-2 border-b border-border">
         <div className="relative">
-          <Search className="w-3.5 h-3.5 text-[#94A3B8] absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜英雄 / 外号 / 拼音"
-            className="w-full pl-8 pr-2.5 py-1.5 rounded bg-[#131E30] border border-[#C8AA6E]/25 text-xs text-[#F0E6D2] placeholder-[#64748B] focus:outline-none focus:border-[#C8AA6E]"
+            className="w-full pl-8 pr-2.5 py-1.5 rounded bg-[#131E30] border border-input text-xs text-foreground placeholder:text-[#8ea0b8] focus:outline-none focus:border-primary"
           />
         </div>
 
@@ -74,10 +74,10 @@ export const TierRadar: React.FC<TierRadarProps> = ({
             <button
               key={rf.key}
               onClick={() => setRole(rf.key)}
-              className={`py-1 rounded text-[11px] cursor-pointer transition ${
+              className={`py-1 rounded text-2xs cursor-pointer transition ${
                 role === rf.key
-                  ? 'bg-[#C8AA6E] text-[#070B12] font-bold'
-                  : 'bg-[#121C2D] text-[#94A3B8] hover:text-[#F0E6D2]'
+                  ? 'bg-primary text-primary-foreground font-bold'
+                  : 'bg-[#121C2D] text-muted-foreground hover:text-foreground'
               }`}
             >
               {rf.label}
@@ -86,7 +86,7 @@ export const TierRadar: React.FC<TierRadarProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto divide-y divide-white/5">
+      <div className="flex-1 overflow-y-auto divide-y divide-white/6">
         {filteredHeroes.map((hero) => {
           const isSelected = hero.id === selectedHeroId
           const isFav = favSet.has(hero.id)
@@ -94,8 +94,8 @@ export const TierRadar: React.FC<TierRadarProps> = ({
             <div
               key={hero.id}
               onClick={() => onSelectHero(hero.id)}
-              className={`h-9 px-2.5 flex items-center justify-between gap-2 cursor-pointer transition group ${
-                isSelected ? 'bg-[#17263E] border-l-2 border-l-[#C8AA6E]' : 'hover:bg-[#111B2B]'
+              className={`h-10 px-3 flex items-center justify-between gap-2 cursor-pointer transition group ${
+                isSelected ? 'bg-[#182842] border-l-2 border-l-primary' : 'hover:bg-[#121d30]'
               }`}
             >
               <div className="flex items-center gap-2 min-w-0">
@@ -103,9 +103,9 @@ export const TierRadar: React.FC<TierRadarProps> = ({
                   src={hero.avatarUrl}
                   alt={hero.name}
                   loading="lazy"
-                  className="w-6 h-6 rounded border border-[#C8AA6E]/35 object-cover shrink-0"
+                  className="w-6.5 h-6.5 rounded border border-primary/40 object-cover shrink-0"
                 />
-                <span className="text-xs font-medium text-[#F0E6D2] truncate">{hero.name}</span>
+                <span className="text-xs font-medium text-foreground truncate">{hero.name}</span>
                 <button
                   type="button"
                   onClick={(e) => {
@@ -113,27 +113,27 @@ export const TierRadar: React.FC<TierRadarProps> = ({
                     onToggleFavorite(hero.id)
                   }}
                   className={`p-0.5 cursor-pointer ${
-                    isFav ? 'text-amber-300' : 'text-transparent group-hover:text-slate-500'
+                    isFav ? 'text-amber-300' : 'text-transparent group-hover:text-slate-400'
                   }`}
                 >
-                  <Star className={`w-3 h-3 ${isFav ? 'fill-amber-300' : ''}`} />
+                  <Star className={`w-3.5 h-3.5 ${isFav ? 'fill-amber-300' : ''}`} />
                 </button>
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0 tabular-nums">
                 <span
-                  className={`text-xs font-medium ${
+                  className={`text-xs font-semibold ${
                     hero.smoothedWinRate >= 0.525
-                      ? 'text-[#0AC8B9]'
+                      ? 'text-accent'
                       : hero.smoothedWinRate <= 0.48
                         ? 'text-rose-400'
-                        : 'text-[#C8C1B2]'
+                        : 'text-[#d4dce8]'
                   }`}
                 >
                   {(hero.smoothedWinRate * 100).toFixed(1)}%
                 </span>
                 <span
-                  className={`text-[10px] w-6 text-center py-0.2 rounded border font-semibold ${
+                  className={`text-2xs w-7 text-center py-0.2 rounded border font-semibold ${
                     TIER_STYLE[hero.tier]
                   }`}
                 >

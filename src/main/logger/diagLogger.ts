@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { appendFile, mkdir, readFile, rename, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app, screen } from 'electron'
-import type { DiagnosticSummary } from '@shared/types'
+import type { DiagnosticSummary, GameLiveState } from '@shared/types'
 
 const MAX_LOG_BYTES = 1024 * 1024 // 1 MB hard cap with automatic rotation
 const recentMemLines: string[] = []
@@ -48,7 +48,7 @@ export function logDiag(tag: string, message: string): void {
 export async function buildDiagnosticSummary(extra: {
   isSelfElevated: boolean
   leagueElevatedMismatch: boolean
-  connectionMode: string
+  connectionMode: GameLiveState['connectionMode']
   trackedWindowSummary: string
   ocrEngineSummary: string
   datasetSummary: string
@@ -95,6 +95,11 @@ export async function buildDiagnosticSummary(extra: {
     isWindows: process.platform === 'win32',
     isSelfElevated: extra.isSelfElevated,
     leagueElevatedMismatch: extra.leagueElevatedMismatch,
+    connectionMode: extra.connectionMode,
+    trackedWindowSummary: extra.trackedWindowSummary,
+    ocrEngineSummary: extra.ocrEngineSummary,
+    datasetSummary: extra.datasetSummary,
+    memoryRssMb: memMb,
     logDirPath: getLogDirPath(),
     formattedReport: reportLines.join('\n')
   }

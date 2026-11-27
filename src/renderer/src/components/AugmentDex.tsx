@@ -76,15 +76,15 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
   return (
     <div className="flex-1 flex min-h-0">
       {/* Left Rail: All 237 Augments Catalog */}
-      <aside className="w-88 shrink-0 border-r border-[#C8AA6E]/20 bg-[#090F1A] flex flex-col h-full">
-        <div className="p-3 space-y-2.5 border-b border-[#C8AA6E]/15">
+      <aside className="w-92 shrink-0 border-r border-border bg-[#090F1A] flex flex-col h-full">
+        <div className="p-3 space-y-2.5 border-b border-border">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-[#94A3B8] absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜海克斯名 / 效果词 / 拼音 (如 zghs, 暴击)"
-              className="w-full pl-8 pr-3 py-1.5 rounded bg-[#131E30] border border-[#C8AA6E]/25 text-xs text-[#F0E6D2] placeholder-[#64748B] focus:outline-none focus:border-[#C8AA6E]"
+              className="w-full pl-8 pr-3 py-1.5 rounded bg-[#131E30] border border-input text-xs text-foreground placeholder:text-[#8ea0b8] focus:outline-none focus:border-primary"
             />
           </div>
 
@@ -100,10 +100,10 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
               <button
                 key={r.key}
                 onClick={() => setRarity(r.key)}
-                className={`flex-1 py-1 rounded text-[11px] cursor-pointer transition ${
+                className={`flex-1 py-1 rounded text-2xs cursor-pointer transition ${
                   rarity === r.key
-                    ? 'bg-[#C8AA6E] text-[#070B12] font-semibold'
-                    : 'bg-[#121C2D] text-[#94A3B8] hover:text-[#F0E6D2]'
+                    ? 'bg-primary text-primary-foreground font-semibold'
+                    : 'bg-[#121C2D] text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {r.label}
@@ -116,10 +116,10 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
               <button
                 key={tf.key}
                 onClick={() => setTag(tf.key)}
-                className={`px-2 py-0.5 rounded text-[11px] cursor-pointer ${
+                className={`px-2 py-0.5 rounded text-2xs cursor-pointer ${
                   tag === tf.key
-                    ? 'bg-[#0AC8B9]/20 text-[#5CF2E5] border border-[#0AC8B9]/45'
-                    : 'bg-[#121C2D] text-[#94A3B8] hover:text-[#F0E6D2]'
+                    ? 'bg-accent/20 text-[#5CF2E5] border border-accent/45 font-medium'
+                    : 'bg-[#121C2D] text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {tf.label}
@@ -128,20 +128,20 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
           </div>
         </div>
 
-        <div className="px-3 py-1.5 text-[11px] text-[#64748B] border-b border-[#C8AA6E]/10 flex justify-between">
+        <div className="px-3.5 py-2 text-2xs text-muted-foreground border-b border-border flex justify-between">
           <span>海克斯强化图鉴（共 {filteredList.length} 项）</span>
           <span>点击反查天选英雄</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto divide-y divide-[#C8AA6E]/8">
+        <div className="flex-1 overflow-y-auto divide-y divide-white/6">
           {filteredList.map((aug) => {
             const active = aug.id === selectedId
             return (
               <button
                 key={aug.id}
                 onClick={() => setSelectedId(aug.id)}
-                className={`w-full px-3 py-2.5 flex items-center gap-2.5 text-left cursor-pointer transition ${
-                  active ? 'bg-[#17253B] border-l-2 border-l-[#C8AA6E]' : 'hover:bg-[#111B2B]'
+                className={`w-full px-3.5 py-3 flex items-center gap-3 text-left cursor-pointer transition ${
+                  active ? 'bg-[#17263e] border-l-2 border-l-primary' : 'hover:bg-[#111c2e]'
                 }`}
               >
                 {aug.iconUrl ? (
@@ -156,12 +156,12 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-semibold text-[#F0E6D2] truncate">{aug.name}</span>
-                    <span className={`text-[10px] px-1 rounded border ${RARITY_BADGE[aug.rarity]}`}>
+                    <span className="text-xs font-semibold text-foreground truncate">{aug.name}</span>
+                    <span className={`text-2xs px-1.5 rounded border ${RARITY_BADGE[aug.rarity]}`}>
                       {RARITY_LABEL[aug.rarity]}
                     </span>
                   </div>
-                  <p className="text-[11px] text-[#94A3B8] truncate mt-0.5">{aug.desc}</p>
+                  <p className="text-2xs text-muted-foreground truncate mt-0.5">{aug.desc}</p>
                 </div>
               </button>
             )
@@ -204,21 +204,21 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
                       {RARITY_LABEL[detail.augment.rarity]}阶强化
                     </span>
                   </div>
-                  <p className="text-sm text-[#E5DEC9] leading-relaxed">{detail.augment.desc}</p>
+                  <p className="text-sm text-[#e6edf6] leading-relaxed">{detail.augment.desc}</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-5 bg-black/35 px-4 py-3 rounded-lg border border-white/10 tabular-nums">
+              <div className="flex items-center gap-5 bg-black/35 px-4 py-3 rounded-lg border border-white/15 tabular-nums">
                 <div>
-                  <div className="text-[11px] text-[#94A3B8]">全英雄平均胜率</div>
-                  <div className="text-lg font-bold text-[#0AC8B9]">
+                  <div className="text-2xs text-muted-foreground">全英雄平均胜率</div>
+                  <div className="text-lg font-bold text-accent">
                     {(detail.avgWinRate * 100).toFixed(1)}%
                   </div>
                 </div>
                 <div className="h-8 w-px bg-white/10" />
                 <div>
-                  <div className="text-[11px] text-[#94A3B8]">总选取人次</div>
-                  <div className="text-lg font-bold text-[#F0E6D2]">
+                  <div className="text-2xs text-muted-foreground">总选取人次</div>
+                  <div className="text-lg font-bold text-foreground">
                     {detail.totalPickGames.toLocaleString()}
                   </div>
                 </div>

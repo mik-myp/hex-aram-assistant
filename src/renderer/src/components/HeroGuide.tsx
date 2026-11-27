@@ -95,20 +95,20 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
           />
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-runeterra text-lg font-bold text-[#F0E6D2]">{hero.name}</h1>
-              <span className={`text-[11px] px-1.5 py-0.2 rounded border font-bold ${TIER_STYLE[hero.tier]}`}>
+              <h1 className="font-runeterra text-lg font-bold text-foreground">{hero.name}</h1>
+              <span className={`text-2xs px-1.5 py-0.2 rounded border font-bold ${TIER_STYLE[hero.tier]}`}>
                 {hero.tier}
               </span>
-              <span className="text-xs font-semibold text-[#0AC8B9] tabular-nums">
+              <span className="text-sm font-bold text-accent tabular-nums">
                 {(hero.smoothedWinRate * 100).toFixed(1)}%
               </span>
               {hero.skillOrder && (
-                <span className="text-[11px] px-2 py-0.5 rounded bg-[#C8AA6E]/15 text-[#E2C992] border border-[#C8AA6E]/30">
+                <span className="text-2xs px-2 py-0.5 rounded bg-primary/15 text-secondary-foreground border border-primary/35 font-medium">
                   {hero.skillOrder}
                 </span>
               )}
               {guide.bestSpells[0] && (
-                <span className="text-[11px] text-[#94A3B8]">{guide.bestSpells[0].label}</span>
+                <span className="text-xs text-muted-foreground">{guide.bestSpells[0].label}</span>
               )}
               <button
                 onClick={onToggleFavorite}
@@ -116,23 +116,22 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                 className={`p-1 rounded border cursor-pointer transition ${
                   isFavorite
                     ? 'bg-amber-500/20 text-amber-300 border-amber-400/50'
-                    : 'bg-[#121C2D] text-[#64748B] border-white/10 hover:text-[#F0E6D2]'
+                    : 'bg-[#121C2D] text-muted-foreground border-white/15 hover:text-foreground'
                 }`}
               >
                 <Star className={`w-3.5 h-3.5 ${isFavorite ? 'fill-amber-300' : ''}`} />
               </button>
             </div>
 
-            {/* Secondary Build / Pivot quick hint */}
             {guide.augmentPivotBuilds.length > 0 && (
-              <div className="mt-1 flex items-center gap-2 text-[11px] text-[#94A3B8]">
+              <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                 <span>特定海克斯变阵首件：</span>
                 {guide.augmentPivotBuilds.slice(0, 2).map((pv) => {
                   const am = augments[pv.augmentId]
                   const firstIt = pv.items[0]
                   if (!am || !firstIt) return null
                   return (
-                    <span key={pv.augmentId} className="text-[#E2C992]">
+                    <span key={pv.augmentId} className="text-secondary-foreground font-medium">
                       【{am.name}】→ {firstIt.name}
                     </span>
                   )
@@ -182,13 +181,13 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
             </div>
           )}
 
-          <div className="relative w-48">
-            <Search className="w-3.5 h-3.5 text-[#94A3B8] absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <div className="relative w-52">
+            <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="筛海克斯 / 拼音 (zghs)"
-              className="w-full pl-8 pr-2.5 py-1.5 rounded bg-[#131E30] border border-[#C8AA6E]/25 text-xs text-[#F0E6D2] placeholder-[#64748B] focus:outline-none focus:border-[#C8AA6E]"
+              className="w-full pl-8 pr-2.5 py-1.5 rounded bg-[#131E30] border border-input text-xs text-foreground placeholder:text-[#8ea0b8] focus:outline-none focus:border-primary"
             />
           </div>
         </div>
@@ -196,19 +195,19 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
 
       {/* Hover Popover for Equipment or Augment Detail (Fixed bottom-right crisp HUD card, zero layout shift!) */}
       {(hoveredAug || hoveredItem) && (
-        <div className="fixed bottom-5 right-6 z-50 w-96 p-4 rounded-xl bg-[#0B1322]/98 border border-[#C8AA6E]/60 shadow-2xl pointer-events-none space-y-2">
+        <div className="fixed bottom-5 right-6 z-50 w-104 p-4 rounded-xl bg-[#0c1526]/98 border border-primary/60 shadow-2xl pointer-events-none space-y-2.5">
           {hoveredItem && (
             <>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <img src={hoveredItem.iconUrl} alt="" className="w-9 h-9 rounded border border-[#C8AA6E]/40" />
+                  <img src={hoveredItem.iconUrl} alt="" className="w-10 h-10 rounded border border-primary/45" />
                   <div>
-                    <div className="text-sm font-bold text-[#F0E6D2]">{hoveredItem.name}</div>
-                    <div className="text-[11px] text-[#E2C992]">总价 {hoveredItem.totalGold} 金币</div>
+                    <div className="text-sm font-bold text-foreground">{hoveredItem.name}</div>
+                    <div className="text-xs text-secondary-foreground font-medium">总价 {hoveredItem.totalGold} 金币</div>
                   </div>
                 </div>
               </div>
-              <p className="text-xs text-[#C8C1B2] leading-relaxed whitespace-pre-line">
+              <p className="text-xs text-[#dbe4f0] leading-relaxed whitespace-pre-line">
                 {hoveredItem.fullDesc || hoveredItem.brief || '标准传说装备'}
               </p>
             </>
@@ -222,14 +221,14 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                     <img
                       src={augments[hoveredAug.augmentId].iconUrl}
                       alt=""
-                      className="w-9 h-9 rounded bg-black/50 p-0.5 border border-white/15"
+                      className="w-10 h-10 rounded bg-black/50 p-0.5 border border-white/20"
                     />
                   )}
                   <div>
-                    <div className="text-sm font-bold text-[#F0E6D2]">
+                    <div className="text-sm font-bold text-foreground">
                       {augments[hoveredAug.augmentId].name}
                     </div>
-                    <div className="text-[11px] text-[#94A3B8] tabular-nums">
+                    <div className="text-xs text-muted-foreground tabular-nums">
                       样本 {hoveredAug.games.toLocaleString()} 局 · 点击可看全联盟天选英雄榜
                     </div>
                   </div>
@@ -242,11 +241,11 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                   {hoveredAug.verdictLabel}
                 </span>
               </div>
-              <p className="text-xs text-[#E2DEC9] leading-relaxed">
+              <p className="text-sm text-[#e6edf6] leading-relaxed">
                 {augments[hoveredAug.augmentId].desc}
               </p>
               {hoveredAug.boundItems && hoveredAug.boundItems.length > 0 && (
-                <div className="pt-1 text-[11px] text-[#5CF2E5]">
+                <div className="pt-1 text-xs text-[#5CF2E5] font-medium">
                   最佳绑定首件：
                   {hoveredAug.boundItems
                     .map((bi) => `${bi.name} (${(bi.winRate * 100).toFixed(1)}%)`)
@@ -284,15 +283,15 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
         ).map((col) => (
           <div key={col.key} className="flex flex-col min-h-0">
             <div
-              className={`px-3.5 py-2 border-b flex items-center justify-between text-xs font-semibold shrink-0 ${col.accent}`}
+              className={`px-3.5 py-2.5 border-b flex items-center justify-between text-xs font-semibold shrink-0 ${col.accent}`}
             >
               <span>{col.title}</span>
-              <span className="text-[11px] text-[#94A3B8] font-normal tabular-nums">
+              <span className="text-2xs text-muted-foreground font-normal tabular-nums">
                 {col.list.length} 项 · 悬停看效果
               </span>
             </div>
 
-            <div className="flex-1 overflow-y-auto divide-y divide-white/5">
+            <div className="flex-1 overflow-y-auto divide-y divide-white/6">
               {col.list.map((st) => {
                 const m = augments[st.augmentId]
                 if (!m) return null
@@ -303,26 +302,32 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                     onMouseEnter={() => setHoveredAug(st)}
                     onMouseLeave={() => setHoveredAug(null)}
                     onClick={() => onOpenInAugmentDex(st.augmentId)}
-                    className={`w-full h-10 px-3 flex items-center justify-between gap-2 text-left cursor-pointer transition ${
+                    className={`w-full min-h-11 px-3.5 py-2 flex items-center justify-between gap-2 text-left cursor-pointer transition ${
                       isTrap
-                        ? 'opacity-70 hover:opacity-100 hover:bg-rose-950/25'
-                        : 'hover:bg-[#131F33]'
+                        ? 'bg-rose-950/12 hover:bg-rose-950/28'
+                        : 'hover:bg-[#142238]'
                     }`}
                   >
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       {m.iconUrl ? (
                         <img
                           src={m.iconUrl}
                           alt=""
                           loading="lazy"
-                          className="w-6 h-6 rounded bg-black/50 p-0.5 border border-white/10 shrink-0"
+                          className="w-7 h-7 rounded bg-black/50 p-0.5 border border-white/15 shrink-0"
                         />
                       ) : (
-                        <div className="w-6 h-6 rounded bg-black/40 shrink-0" />
+                        <div className="w-7 h-7 rounded bg-black/40 shrink-0" />
                       )}
-                      <span className="text-xs font-medium text-[#F0E6D2] truncate">{m.name}</span>
                       <span
-                        className={`text-[10px] px-1.5 py-0.2 rounded border shrink-0 ${
+                        className={`text-xs font-medium truncate ${
+                          isTrap ? 'text-rose-200' : 'text-foreground'
+                        }`}
+                      >
+                        {m.name}
+                      </span>
+                      <span
+                        className={`text-2xs px-1.5 py-0.2 rounded border shrink-0 font-medium ${
                           VERDICT_STYLE[st.verdict]
                         }`}
                       >
@@ -331,16 +336,16 @@ export const HeroGuide: React.FC<HeroGuideProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 tabular-nums text-xs">
-                      <span className="text-[#F0E6D2] font-semibold">
+                      <span className="text-foreground font-semibold">
                         {(st.smoothedWinRate * 100).toFixed(1)}%
                       </span>
                       <span
-                        className={`w-11 text-right text-[11px] font-medium ${
+                        className={`w-12 text-right text-2xs font-semibold ${
                           st.deltaWinRate >= 0.015
-                            ? 'text-[#0AC8B9]'
+                            ? 'text-accent'
                             : st.deltaWinRate <= -0.02
                               ? 'text-rose-400'
-                              : 'text-[#64748B]'
+                              : 'text-muted-foreground'
                         }`}
                       >
                         {st.deltaWinRate >= 0 ? '+' : ''}

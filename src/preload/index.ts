@@ -5,6 +5,7 @@ import type {
   AugmentMeta,
   AugmentReverseDetail,
   BenchSuggestion,
+  CacheStatsInfo,
   DatasetMetadata,
   DiagnosticSummary,
   GameLiveState,
@@ -13,6 +14,7 @@ import type {
   ItemMeta,
   OcrRecognizeResult,
   PlaystyleMode,
+  ShortcutStatusMap,
   TacticalAdvice,
   UserPreferences
 } from '@shared/types'
@@ -26,6 +28,7 @@ export interface HexBuddyApi {
     gameState: GameLiveState
     settings: AiSettings
     prefs: UserPreferences
+    shortcutStatus: ShortcutStatusMap
     updateState: AppUpdateState
     miniClickThrough: boolean
   }>
@@ -82,8 +85,33 @@ export interface HexBuddyApi {
     selectedHeroId: string | null,
     userQuestion?: string
   ) => Promise<{ ok: boolean; content: string }>
+  testAiConnection: (
+    draftSettings: AiSettings
+  ) => Promise<{ ok: boolean; latencyMs: number; message: string }>
   saveSettings: (next: AiSettings) => Promise<AiSettings>
   savePrefs: (next: Partial<UserPreferences>) => Promise<UserPreferences>
+  getShortcutStatus: () => Promise<ShortcutStatusMap>
+  setShortcutRecording: (paused: boolean) => Promise<void>
+  resetAllToDefaults: () => Promise<{
+    settings: AiSettings
+    prefs: UserPreferences
+    shortcutStatus: ShortcutStatusMap
+  }>
+  exportConfigFile: () => Promise<{ ok: boolean; message: string }>
+  importConfigFile: () => Promise<{
+    ok: boolean
+    message: string
+    settings?: AiSettings
+    prefs?: UserPreferences
+    shortcutStatus?: ShortcutStatusMap
+  }>
+  getCacheStats: () => Promise<CacheStatsInfo>
+  clearLocalCache: () => Promise<{
+    ok: boolean
+    message: string
+    stats: CacheStatsInfo
+    meta: DatasetMetadata
+  }>
   toggleMiniOverlay: (forceShow?: boolean) => Promise<boolean>
   showMainWindow: () => Promise<void>
   minimizeMain: () => Promise<void>
@@ -92,6 +120,7 @@ export interface HexBuddyApi {
   setHudInteractive: (interactive: boolean) => Promise<void>
   openExternal: (url: string) => Promise<void>
   copyText: (text: string) => Promise<void>
+  copyShopItemText: (itemName: string) => Promise<{ restoredAfterSec: number }>
   getDiagnostics: () => Promise<DiagnosticSummary>
   openLogDir: () => Promise<void>
   relaunchAsAdmin: () => Promise<boolean>
@@ -102,6 +131,7 @@ export interface HexBuddyApi {
   onGameStateUpdated: (cb: (state: GameLiveState) => void) => () => void
   onOcrResult: (cb: (res: OcrRecognizeResult) => void) => () => void
   onPrefsUpdated: (cb: (prefs: UserPreferences) => void) => () => void
+  onSettingsUpdated: (cb: (settings: AiSettings) => void) => () => void
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
   onWindowMaximizedChanged: (cb: (maximized: boolean) => void) => () => void
 }
@@ -133,8 +163,16 @@ const api: HexBuddyApi = {
   getTacticalAdvice: (selectedHeroId) => ipcRenderer.invoke('ai:get-tactical-advice', selectedHeroId),
   askLlmAdvisor: (selectedHeroId, userQuestion) =>
     ipcRenderer.invoke('ai:ask-llm', selectedHeroId, userQuestion),
+  testAiConnection: (draftSettings) => ipcRenderer.invoke('ai:test-connection', draftSettings),
   saveSettings: (next) => ipcRenderer.invoke('settings:save', next),
   savePrefs: (next) => ipcRenderer.invoke('prefs:save', next),
+  getShortcutStatus: () => ipcRenderer.invoke('shortcuts:get-status'),
+  setShortcutRecording: (paused) => ipcRenderer.invoke('shortcuts:set-recording', paused),
+  resetAllToDefaults: () => ipcRenderer.invoke('prefs:reset-defaults'),
+  exportConfigFile: () => ipcRenderer.invoke('prefs:export-config'),
+  importConfigFile: () => ipcRenderer.invoke('prefs:import-config'),
+  getCacheStats: () => ipcRenderer.invoke('system:get-cache-stats'),
+  clearLocalCache: () => ipcRenderer.invoke('system:clear-cache'),
   toggleMiniOverlay: (forceShow) => ipcRenderer.invoke('window:toggle-mini', forceShow),
   showMainWindow: () => ipcRenderer.invoke('window:show-main'),
   minimizeMain: () => ipcRenderer.invoke('window:minimize-main'),
@@ -143,6 +181,7 @@ const api: HexBuddyApi = {
   setHudInteractive: (interactive) => ipcRenderer.invoke('window:set-hud-interactive', interactive),
   openExternal: (url) => ipcRenderer.invoke('window:open-external', url),
   copyText: (text) => ipcRenderer.invoke('system:copy-text', text),
+  copyShopItemText: (itemName) => ipcRenderer.invoke('system:copy-shop-item', itemName),
   getDiagnostics: () => ipcRenderer.invoke('system:get-diagnostics'),
   openLogDir: () => ipcRenderer.invoke('system:open-log-dir'),
   relaunchAsAdmin: () => ipcRenderer.invoke('system:relaunch-admin'),
@@ -164,6 +203,11 @@ const api: HexBuddyApi = {
     const handler = (_: unknown, prefs: UserPreferences): void => cb(prefs)
     ipcRenderer.on('prefs:updated', handler)
     return () => ipcRenderer.removeListener('prefs:updated', handler)
+  },
+  onSettingsUpdated: (cb) => {
+    const handler = (_: unknown, settings: AiSettings): void => cb(settings)
+    ipcRenderer.on('settings:updated', handler)
+    return () => ipcRenderer.removeListener('settings:updated', handler)
   },
   onUpdateStateChanged: (cb) => {
     const handler = (_: unknown, st: AppUpdateState): void => cb(st)

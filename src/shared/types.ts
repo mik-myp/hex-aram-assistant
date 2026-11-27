@@ -8,7 +8,25 @@ export type HeroRole = 'mage' | 'marksman' | 'tank' | 'fighter' | 'assassin' | '
 
 export type OverlayOpacityMode = 'solid' | 'glass' | 'clear'
 
+export type HudDensityMode = 'detailed' | 'compact'
+
+export type UiFontScale = 'normal' | 'comfortable' | 'large'
+
+export type OcrEngineMode = 'auto' | 'tesseract'
+
+export type AiToneStyle = 'concise' | 'witty' | 'beginner'
+
 export type PlaystyleMode = 'steady' | 'counter' | 'team' | 'yolo' | 'torment'
+
+export type MainViewTab = 'heroes' | 'augments' | 'settings'
+
+export type SettingsSectionId =
+  | 'general'
+  | 'hud'
+  | 'hotkeys'
+  | 'data'
+  | 'ai'
+  | 'about'
 
 export interface HeroMeta {
   id: string
@@ -168,9 +186,21 @@ export interface SeedBundle {
 }
 
 export interface UserPreferences {
+  schemaVersion: number
+  uiFontScale: UiFontScale
   preferredRoles: HeroRole[]
   favoriteHeroIds: string[]
   overlayOpacity: OverlayOpacityMode
+  hudScale: number
+  hudDensity: HudDensityMode
+  enableBenchBadges: boolean
+  enableThreePickBadges: boolean
+  enableFountainStrip: boolean
+  defaultPlaystyle: PlaystyleMode
+  autoSyncDataOnBoot: boolean
+  restoreClipboardAfterCopy: boolean
+  ocrEngineMode: OcrEngineMode
+  onboardingDismissed: boolean
   autoOcrOnMilestone: boolean
   minimizeToTray: boolean
   releaseMainOnMatch?: boolean
@@ -287,7 +317,16 @@ export interface DynamicBuildStep {
   owned: boolean
   affordableNow: boolean
   goldRemaining: number
-  sourceTag: '常规核心' | '海克斯变阵' | '专治大爹' | '重伤克制' | '打坦穿透' | '防秒抗性' | '独爽核弹' | '折磨恶心' | '团队补位'
+  sourceTag:
+    | '常规核心'
+    | '海克斯变阵'
+    | '专治大爹'
+    | '重伤克制'
+    | '打坦穿透'
+    | '防秒抗性'
+    | '独爽核弹'
+    | '折磨恶心'
+    | '团队补位'
   reason: string
 }
 
@@ -310,8 +349,29 @@ export interface AiSettings {
   baseUrl: string
   apiKey: string
   model: string
+  toneStyle: AiToneStyle
   shortcutOverlay: string
   shortcutOcr: string
+  shortcutCycleMindset: string
+}
+
+export interface ShortcutSlotStatus {
+  accelerator: string
+  registered: boolean
+  error?: string
+}
+
+export interface ShortcutStatusMap {
+  overlay: ShortcutSlotStatus
+  ocr: ShortcutSlotStatus
+  cycleMindset: ShortcutSlotStatus
+}
+
+export interface CacheStatsInfo {
+  bundleBytes: number
+  logBytes: number
+  chromiumCacheBytes: number
+  totalBytes: number
 }
 
 export type UpdatePhase =
@@ -345,6 +405,11 @@ export interface DiagnosticSummary {
   isWindows: boolean
   isSelfElevated: boolean
   leagueElevatedMismatch: boolean
+  connectionMode: GameLiveState['connectionMode']
+  trackedWindowSummary: string
+  ocrEngineSummary: string
+  datasetSummary: string
+  memoryRssMb: number
   logDirPath: string
   formattedReport: string
 }

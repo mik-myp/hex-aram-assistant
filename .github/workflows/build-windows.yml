@@ -37,13 +37,17 @@ jobs:
         continue-on-error: true
         run: pnpm fetch-seed
 
-      - name: Run TypeScript check and unit tests
+      - name: Run architecture gate, TypeScript check, and unit tests
         run: |
+          pnpm check:arch
           pnpm typecheck
           pnpm test
 
       - name: Build Windows Installer (NSIS) & Portable (.exe)
         run: pnpm dist:win
+
+      - name: Extract structured Chinese release notes from CHANGELOG.md
+        run: node scripts/extract-changelog.mjs "${GITHUB_REF_NAME}" release/release-notes.md
 
       - name: Upload Windows .exe Artifacts
         uses: actions/upload-artifact@v4
@@ -58,7 +62,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: release/release-notes.md
+          generate_release_notes: false
           files: |
             release/*-Setup-*.exe
             release/*-Portable-*.exe

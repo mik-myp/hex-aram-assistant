@@ -3,209 +3,171 @@ import { SimulatorBar } from './components/SimulatorBar'
 import { TierRadar } from './components/TierRadar'
 import { AugmentDex } from './components/AugmentDex'
 import { HeroGuide } from './components/HeroGuide'
-import { MiniOverlay } from './components/MiniOverlay'
-import { SettingsModal } from './components/SettingsModal'
-import type {
-  AiSettings,
-  AppUpdateState,
-  AugmentMeta,
-  DatasetMetadata,
-  GameLiveState,
-  HeroDetailGuide,
-  HeroMeta,
-  ItemMeta,
-  UserPreferences
-} from '@shared/types'
+import { CommandPalette } from './components/CommandPalette'
+import { OnboardingBanner } from './components/OnboardingBanner'
+import { MiniOverlay } from './features/hud/MiniOverlay'
+import { SettingsCenter } from './features/settings/SettingsCenter'
+import { useWorkspaceBootstrap } from './hooks/useWorkspaceBootstrap'
+import type { MainViewTab, SettingsSectionId } from '@shared/types'
 
 export const App: React.FC = () => {
-  const isMiniMode = window.location.hash === '#mini'
-  if (isMiniMode) {
+  if (window.location.hash === '#mini') {
     return <MiniOverlay />
   }
   return <MainWorkspace />
 }
 
-/**
- * Pure, calm, clutter-free Strategy Reference Dictionary (Main Window).
- * Live match decisions & multi-situation recommendations are handled by the Spatial HUD Overlay!
- */
 const MainWorkspace: React.FC = () => {
-  const [meta, setMeta] = useState<DatasetMetadata | null>(null)
-  const [heroes, setHeroes] = useState<Record<string, HeroMeta>>({})
-  const [augments, setAugments] = useState<Record<string, AugmentMeta>>({})
-  const [items, setItems] = useState<Record<string, ItemMeta>>({})
-  const [gameState, setGameState] = useState<GameLiveState | null>(null)
-  const [settings, setSettings] = useState<AiSettings | null>(null)
-  const [prefs, setPrefs] = useState<UserPreferences | null>(null)
-  const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
-
-  const [mainView, setMainView] = useState<'heroes' | 'augments'>('heroes')
+  const ws = useWorkspaceBootstrap()
+  const [mainView, setMainView] = useState<MainViewTab>('heroes')
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('general')
   const [dexFocusAugmentId, setDexFocusAugmentId] = useState<string | null>(null)
-  const [selectedHeroId, setSelectedHeroId] = useState<string | null>(null)
-  const [heroGuide, setHeroGuide] = useState<HeroDetailGuide | null>(null)
-
-  const [syncing, setSyncing] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
-
-  const showNotice = (msg: string): void => {
-    setToast(msg)
-    setTimeout(() => {
-      setToast((prev) => (prev === msg ? null : prev))
-    }, 3200)
-  }
+  const [commandOpen, setCommandOpen] = useState(false)
 
   useEffect(() => {
-    window.hexbuddy.getBootstrap().then((boot) => {
-      setMeta(boot.meta)
-      setHeroes(boot.heroes)
-      setAugments(boot.augments)
-      setItems(boot.items)
-      setGameState(boot.gameState)
-      setSettings(boot.settings)
-      setPrefs(boot.prefs)
-      setUpdateState(boot.updateState)
-
-      const sorted = Object.values(boot.heroes).sort(
-        (a, b) => b.smoothedWinRate - a.smoothedWinRate
-      )
-      setSelectedHeroId(sorted[0]?.id || null)
-    })
-
-    const unsubGame = window.hexbuddy.onGameStateUpdated((nextState) => {
-      setGameState(nextState)
-    })
-    const unsubPrefs = window.hexbuddy.onPrefsUpdated((nextPrefs) => {
-      setPrefs(nextPrefs)
-    })
-    const unsubUpdater = window.hexbuddy.onUpdateStateChanged((nextUpd) => {
-      setUpdateState(nextUpd)
-    })
-
+    const scale = ws.prefs?.uiFontScale || 'comfortable'
+    document.documentElement.dataset.fontScale = scale
     return () => {
-      unsubGame()
-      unsubPrefs()
-      unsubUpdater()
+      delete document.documentElement.dataset.fontScale
     }
+  }, [ws.prefs?.uiFontScale])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setCommandOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  useEffect(() => {
-    if (!selectedHeroId) return
-    window.hexbuddy.getHeroGuide(selectedHeroId).then(setHeroGuide)
-  }, [selectedHeroId, meta?.seq, meta?.mode, meta?.activeBand])
-
-  const handleSyncNow = async (): Promise<void> => {
-    setSyncing(true)
-    try {
-      const res = await window.hexbuddy.syncNow(false)
-      setMeta(res.meta)
-      setHeroes(res.heroes)
-      setAugments(res.augments)
-      setItems(res.items)
-      showNotice(res.message)
-    } catch (err) {
-      showNotice(`同步失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setSyncing(false)
+  const handleLaunchSimDemo = (
+    scene: 'off' | 'champ-select' | 'level-7-pick' | 'fountain-buy'
+  ): void => {
+    window.hexbuddy.setSimulator(scene)
+    if (scene !== 'off') {
+      ws.showNotice('已在全屏原位 HUD 中开启实景贴标演练（可在屏幕上方直接切换 5 档心态）')
     }
   }
 
-  const handleSwitchDataset = async (path: string, band: 'all' | 'high'): Promise<void> => {
-    setSyncing(true)
-    try {
-      const res = await window.hexbuddy.switchDataset(path, band)
-      setMeta(res.meta)
-      setHeroes(res.heroes)
-      setAugments(res.augments)
-      setItems(res.items)
-      showNotice(res.message)
-    } catch (err) {
-      showNotice(`切换数据集失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  const handleToggleFavoriteHero = async (hid: string): Promise<void> => {
-    if (!prefs) return
-    const exists = prefs.favoriteHeroIds.includes(hid)
-    const next = exists
-      ? prefs.favoriteHeroIds.filter((x) => x !== hid)
-      : [...prefs.favoriteHeroIds, hid]
-    const updated = await window.hexbuddy.savePrefs({ favoriteHeroIds: next })
-    setPrefs(updated)
-  }
-
-  if (!meta || !gameState || !settings || !prefs) {
+  if (!ws.meta || !ws.gameState || !ws.settings || !ws.prefs) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[#070B12] text-[#C8AA6E] text-sm">
+      <div className="h-screen w-screen flex items-center justify-center bg-background text-primary text-sm">
         正在加载海斗攻略图鉴...
       </div>
     )
   }
 
-  const isHeroFav = selectedHeroId ? prefs.favoriteHeroIds.includes(selectedHeroId) : false
-
+  const isHeroFav = ws.selectedHeroId
+    ? ws.prefs.favoriteHeroIds.includes(ws.selectedHeroId)
+    : false
   const isMac = navigator.userAgent.includes('Mac')
 
   return (
     <div
-      className={`h-screen w-screen flex flex-col bg-[#070B12] text-[#F0E6D2] overflow-hidden ${
-        !isMac ? 'border border-[#C8AA6E]/22' : ''
+      className={`h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden ${
+        !isMac ? 'border border-primary/22' : ''
       }`}
     >
       <SimulatorBar
-        gameState={gameState}
-        updateState={updateState}
+        gameState={ws.gameState}
+        updateState={ws.updateState}
         mainView={mainView}
         onChangeMainView={setMainView}
-        onSelectSimScene={(scene) => {
-          window.hexbuddy.setSimulator(scene)
-          if (scene !== 'off') {
-            showNotice('已在全屏原位 HUD 中开启实景贴标演练（可在屏幕上方直接切换 5 档心态）')
-          }
-        }}
+        onOpenCommandPalette={() => setCommandOpen(true)}
+        onSelectSimScene={handleLaunchSimDemo}
         onToggleHud={async () => {
           const visible = await window.hexbuddy.toggleMiniOverlay()
-          showNotice(visible ? '已开启全屏透明穿透原位 HUD' : '已隐藏原位 HUD')
+          ws.showNotice(visible ? '已开启全屏透明穿透原位 HUD' : '已隐藏原位 HUD')
         }}
-        onOpenSettings={() => setShowSettings(true)}
+        onJumpToUpdateSection={() => {
+          setSettingsSection('about')
+          setMainView('settings')
+        }}
       />
 
-      {toast && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-1.5 rounded-full bg-[#142338] border border-[#0AC8B9]/50 text-xs text-[#F0E6D2] shadow-xl">
-          {toast}
+      {!ws.prefs.onboardingDismissed && (
+        <OnboardingBanner
+          onStartSimDemo={() => handleLaunchSimDemo('level-7-pick')}
+          onDismiss={async () => {
+            const updated = await window.hexbuddy.savePrefs({ onboardingDismissed: true })
+            ws.setPrefs(updated)
+          }}
+        />
+      )}
+
+      {ws.toast && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-1.5 rounded-full bg-[#142338] border border-accent/50 text-xs text-foreground shadow-xl">
+          {ws.toast}
         </div>
       )}
 
-      {mainView === 'augments' ? (
+      {mainView === 'settings' ? (
+        <SettingsCenter
+          settings={ws.settings}
+          prefs={ws.prefs}
+          meta={ws.meta}
+          shortcutStatus={ws.shortcutStatus}
+          updateState={ws.updateState}
+          syncing={ws.syncing}
+          initialSection={settingsSection}
+          onSwitchDataset={ws.handleSwitchDataset}
+          onSyncNow={ws.handleSyncNow}
+          onUpdatePrefs={async (patch) => {
+            const updated = await window.hexbuddy.savePrefs(patch)
+            ws.setPrefs(updated)
+          }}
+          onUpdateSettings={async (nextSettings) => {
+            const updated = await window.hexbuddy.saveSettings(nextSettings)
+            ws.setSettings(updated)
+            const st = await window.hexbuddy.getShortcutStatus()
+            ws.setShortcutStatus(st)
+          }}
+          onResetAll={async () => {
+            const res = await window.hexbuddy.resetAllToDefaults()
+            ws.setSettings(res.settings)
+            ws.setPrefs(res.prefs)
+            ws.setShortcutStatus(res.shortcutStatus)
+          }}
+          onImportedConfig={(payload) => {
+            if (payload.settings) ws.setSettings(payload.settings)
+            if (payload.prefs) ws.setPrefs(payload.prefs)
+            if (payload.shortcutStatus) ws.setShortcutStatus(payload.shortcutStatus)
+          }}
+          onCacheCleared={ws.setMeta}
+          onOpenSimPreview={() => handleLaunchSimDemo('level-7-pick')}
+          onNotify={ws.showNotice}
+        />
+      ) : mainView === 'augments' ? (
         <AugmentDex
-          augments={augments}
-          heroes={heroes}
+          augments={ws.augments}
+          heroes={ws.heroes}
           initialAugmentId={dexFocusAugmentId}
           onJumpToHero={(hid) => {
-            setSelectedHeroId(hid)
+            ws.setSelectedHeroId(hid)
             setMainView('heroes')
           }}
         />
       ) : (
         <div className="flex-1 flex min-h-0">
           <TierRadar
-            heroes={heroes}
-            selectedHeroId={selectedHeroId}
-            favoriteHeroIds={prefs.favoriteHeroIds}
-            onSelectHero={setSelectedHeroId}
-            onToggleFavorite={handleToggleFavoriteHero}
+            heroes={ws.heroes}
+            selectedHeroId={ws.selectedHeroId}
+            favoriteHeroIds={ws.prefs.favoriteHeroIds}
+            onSelectHero={ws.setSelectedHeroId}
+            onToggleFavorite={ws.handleToggleFavoriteHero}
           />
 
-          {heroGuide ? (
+          {ws.heroGuide ? (
             <HeroGuide
-              guide={heroGuide}
-              augments={augments}
-              items={items}
+              guide={ws.heroGuide}
+              augments={ws.augments}
+              items={ws.items}
               isFavorite={isHeroFav}
               onToggleFavorite={() =>
-                selectedHeroId && handleToggleFavoriteHero(selectedHeroId)
+                ws.selectedHeroId && ws.handleToggleFavoriteHero(ws.selectedHeroId)
               }
               onOpenInAugmentDex={(aid) => {
                 setDexFocusAugmentId(aid)
@@ -216,27 +178,33 @@ const MainWorkspace: React.FC = () => {
         </div>
       )}
 
-      {showSettings && (
-        <SettingsModal
-          settings={settings}
-          prefs={prefs}
-          meta={meta}
-          updateState={updateState}
-          syncing={syncing}
-          onSwitchDataset={handleSwitchDataset}
-          onSyncNow={handleSyncNow}
-          onClose={() => setShowSettings(false)}
-          onSave={async (nextSettings, nextPrefs) => {
-            const [updatedSettings, updatedPrefs] = await Promise.all([
-              window.hexbuddy.saveSettings(nextSettings),
-              window.hexbuddy.savePrefs(nextPrefs)
-            ])
-            setSettings(updatedSettings)
-            setPrefs(updatedPrefs)
-            showNotice('设置已保存')
-          }}
-        />
-      )}
+      <CommandPalette
+        open={commandOpen}
+        onOpenChange={setCommandOpen}
+        heroes={ws.heroes}
+        augments={ws.augments}
+        items={ws.items}
+        onSelectHero={(hid) => {
+          ws.setSelectedHeroId(hid)
+          setMainView('heroes')
+        }}
+        onSelectAugment={(aid) => {
+          setDexFocusAugmentId(aid)
+          setMainView('augments')
+        }}
+        onSelectSetting={(section) => {
+          setSettingsSection(section)
+          setMainView('settings')
+        }}
+        onCopyItem={async (itemName) => {
+          const res = await window.hexbuddy.copyShopItemText(itemName)
+          ws.showNotice(
+            res.restoredAfterSec > 0
+              ? `✓ 已复制「${itemName}」（${res.restoredAfterSec}秒后自动恢复原剪贴板）`
+              : `✓ 已复制装备「${itemName}」，可在游戏商店 Ctrl+V 搜索`
+          )
+        }}
+      />
     </div>
   )
 }
