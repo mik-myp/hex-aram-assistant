@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webFrame } from 'electron'
 import type {
   AiSettings,
   AppUpdateState,
@@ -28,6 +28,14 @@ export interface HexBuddyApi {
     updateState: AppUpdateState
     miniClickThrough: boolean
   }>
+  getHudBootstrap: () => Promise<{
+    heroes: Record<string, HeroMeta>
+    augments: Record<string, AugmentMeta>
+    items: Record<string, ItemMeta>
+    gameState: GameLiveState
+    prefs: UserPreferences
+  }>
+  releaseRendererCache: () => void
   getHeroGuide: (heroId: string) => Promise<HeroDetailGuide | null>
   getAugmentReverse: (augmentId: string) => Promise<AugmentReverseDetail | null>
   getBenchSuggestions: (
@@ -94,6 +102,14 @@ export interface HexBuddyApi {
 
 const api: HexBuddyApi = {
   getBootstrap: () => ipcRenderer.invoke('data:get-bootstrap'),
+  getHudBootstrap: () => ipcRenderer.invoke('data:get-hud-bootstrap'),
+  releaseRendererCache: () => {
+    try {
+      webFrame.clearCache()
+    } catch {
+      // ignore
+    }
+  },
   getHeroGuide: (heroId) => ipcRenderer.invoke('data:get-hero-guide', heroId),
   getAugmentReverse: (augmentId) => ipcRenderer.invoke('data:get-augment-reverse', augmentId),
   getBenchSuggestions: (myHeroId, allyIds, benchIds) =>

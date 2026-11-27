@@ -81,6 +81,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [form, setForm] = useState<AiSettings>({ ...settings })
   const [autoOcr, setAutoOcr] = useState<boolean>(prefs.autoOcrOnMilestone)
   const [minimizeToTray, setMinimizeToTray] = useState<boolean>(prefs.minimizeToTray)
+  const [releaseMainOnMatch, setReleaseMainOnMatch] = useState<boolean>(
+    prefs.releaseMainOnMatch ?? true
+  )
   const [autoHideUnfocused, setAutoHideUnfocused] = useState<boolean>(
     prefs.autoHideWhenUnfocused ?? true
   )
@@ -103,6 +106,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     await onSave(form, {
       autoOcrOnMilestone: autoOcr,
       minimizeToTray,
+      releaseMainOnMatch,
       autoHideWhenUnfocused: autoHideUnfocused,
       badgePosition,
       hudOffsetX,
@@ -262,8 +266,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="mt-0.5 accent-[#0AC8B9]"
                 />
                 <div>
-                  <div className="font-semibold text-[#F0E6D2]">关闭主窗口时最小化至托盘</div>
-                  <p className="text-[#94A3B8] mt-0.5">后台继续保持选人与局内原位 HUD 工作</p>
+                  <div className="font-semibold text-[#F0E6D2]">关闭主窗口时休眠驻留托盘</div>
+                  <p className="text-[#94A3B8] mt-0.5">销毁主窗口释放约 150MB 内存，仅留轻量后台待命</p>
                 </div>
               </label>
 
@@ -276,7 +280,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 />
                 <div>
                   <div className="font-semibold text-[#F0E6D2]">选卡期自动识屏 + 刷新跟随</div>
-                  <p className="text-[#94A3B8] mt-0.5">存活打架 0 截屏；选卡时自动贴标并自动记槽</p>
+                  <p className="text-[#94A3B8] mt-0.5">Windows 原生 OCR 优先 + 选完卡 15 秒自动休眠</p>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2 p-2.5 rounded bg-[#111B2C] border border-[#C8AA6E]/20 cursor-pointer md:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={releaseMainOnMatch}
+                  onChange={(e) => setReleaseMainOnMatch(e.target.checked)}
+                  className="mt-0.5 accent-[#0AC8B9]"
+                />
+                <div>
+                  <div className="font-semibold text-[#F0E6D2]">
+                    进入游戏对局时自动休眠主窗口（推荐开启，局内直省 ~150MB 内存；双屏常驻查阅可关）
+                  </div>
+                  <p className="text-[#94A3B8] mt-0.5">
+                    对局中由原位 HUD 全程接管推荐；随时可点 HUD 书本图标或双击托盘秒开图鉴
+                  </p>
                 </div>
               </label>
 

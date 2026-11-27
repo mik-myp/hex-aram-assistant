@@ -1,7 +1,11 @@
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import https from 'node:https'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import WebSocket from 'ws'
+import { findLeagueClientUxProcessInfo } from './windowTracker'
 
 const execFileAsync = promisify(execFile)
 
@@ -21,32 +25,78 @@ const httpsAgent = new https.Agent({
   rejectUnauthorized: false
 })
 
+// Cache credentials per LeagueClientUx PID so we NEVER repeatedly spawn child processes!
+let cachedPid = 0
+let cachedCreds: LcuCredentials | null = null
+let lastCliProbeAt = 0
+
 /**
- * 100% STRICT READ-ONLY LCU process credential reader.
- * Never modifies game memory, files, or client state.
+ * 100% STRICT READ-ONLY LCU credential discovery (Zero-PowerShell fast path!):
+ *  1. On Windows, checks `FindWindowW("RCLIENT")` via `koffi` (<0.01ms). If League Client isn't open, returns `null` immediately!
+ *  2. Reads Riot's standard `lockfile` (`LeagueClient:pid:port:token:https`) directly from the client folder (`0` child processes!).
+ *  3. Only if `lockfile` is absent (some CN launcher configs), runs ONE cached command-line lookup for that PID.
  */
 export async function detectLcuCredentials(): Promise<LcuCredentials | null> {
   try {
-    let stdout = ''
     if (process.platform === 'win32') {
+      const info = findLeagueClientUxProcessInfo()
+      if (!info) {
+        cachedPid = 0
+        cachedCreds = null
+        return null
+      }
+
+      if (info.pid === cachedPid && cachedCreds) {
+        return cachedCreds
+      }
+
+      // Fast Path 1: Read Riot's plain-text `lockfile` directly (0 processes spawned!)
+      if (info.exePath) {
+        const clientDir = dirname(info.exePath)
+        for (const candidate of [join(clientDir, 'lockfile'), join(clientDir, '..', 'lockfile')]) {
+          if (existsSync(candidate)) {
+            const content = (await readFile(candidate, 'utf-8').catch(() => '')).trim()
+            const parts = content.split(':')
+            if (parts.length >= 4 && /^\d+$/.test(parts[2]) && parts[3]) {
+              cachedPid = info.pid
+              cachedCreds = { port: parts[2], token: parts[3] }
+              return cachedCreds
+            }
+          }
+        }
+      }
+
+      // Fallback Path 2: One-time WMI query per PID (throttled to at most once per 10s)
+      if (Date.now() - lastCliProbeAt < 10000) return null
+      lastCliProbeAt = Date.now()
+
       const res = await execFileAsync(
         'powershell.exe',
         [
+          '-NoLogo',
           '-NoProfile',
+          '-NonInteractive',
           '-Command',
-          "Get-CimInstance Win32_Process -Filter \"name = 'LeagueClientUx.exe'\" | Select-Object -ExpandProperty CommandLine"
+          `(Get-CimInstance Win32_Process -Filter "ProcessId = ${info.pid}").CommandLine`
         ],
-        { timeout: 3500 }
+        { timeout: 3500, windowsHide: true }
       )
-      stdout = res.stdout
-    } else {
-      const res = await execFileAsync('ps', ['-Ao', 'args'], { timeout: 2500 })
-      stdout = res.stdout
-        .split('\n')
-        .filter((line) => line.includes('LeagueClientUx'))
-        .join('\n')
+      const portMatch = res.stdout.match(/--app-port=(\d+)/)
+      const tokenMatch = res.stdout.match(/--remoting-auth-token=([\w-]+)/)
+      if (portMatch && tokenMatch) {
+        cachedPid = info.pid
+        cachedCreds = { port: portMatch[1], token: tokenMatch[1] }
+        return cachedCreds
+      }
+      return null
     }
 
+    // macOS / Linux dev fallback
+    const res = await execFileAsync('ps', ['-Ao', 'args'], { timeout: 2500 })
+    const stdout = res.stdout
+      .split('\n')
+      .filter((line) => line.includes('LeagueClientUx'))
+      .join('\n')
     const portMatch = stdout.match(/--app-port=(\d+)/)
     const tokenMatch = stdout.match(/--remoting-auth-token=([\w-]+)/)
     if (portMatch && tokenMatch) {
@@ -225,6 +275,7 @@ export class ReadOnlyLcuWatcher {
     })
 
     ws.on('error', () => {
+      cachedCreds = null
       this.closeWs()
     })
 

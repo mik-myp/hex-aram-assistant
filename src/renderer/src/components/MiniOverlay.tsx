@@ -93,7 +93,7 @@ export const MiniOverlay: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    window.hexbuddy.getBootstrap().then((boot) => {
+    window.hexbuddy.getHudBootstrap().then((boot) => {
       setHeroes(boot.heroes)
       setAugments(boot.augments)
       setItems(boot.items)
@@ -102,7 +102,16 @@ export const MiniOverlay: React.FC = () => {
     })
 
     const unsubState = window.hexbuddy.onGameStateUpdated((st) => {
-      setGameState(st)
+      setGameState((prev) => {
+        // Release decoded Blink PNG bitmaps when leaving Champ Select or closing 3-Pick cards!
+        if (
+          (prev?.connectionMode === 'lcu-champ-select' && st.connectionMode !== 'lcu-champ-select') ||
+          ((prev?.cardSlots.length ?? 0) > 0 && st.cardSlots.length === 0)
+        ) {
+          setTimeout(() => window.hexbuddy.releaseRendererCache(), 500)
+        }
+        return st
+      })
       setAiBrief(null)
     })
     const unsubPrefs = window.hexbuddy.onPrefsUpdated((p) => {

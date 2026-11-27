@@ -74,24 +74,23 @@ interface RemoteIndexManifest {
 
 export class DataSyncService {
   private bundle: SeedBundle | null = null
-  private baseBundled: SeedBundle | null = null
+
+  private async readBundledFromDisk(): Promise<SeedBundle | null> {
+    const bundledPath = resolveBundledSeedPath()
+    if (!existsSync(bundledPath)) return null
+    try {
+      return JSON.parse(await readFile(bundledPath, 'utf-8')) as SeedBundle
+    } catch (err) {
+      console.warn('[DataSync] Failed to parse bundled seed:', err)
+      return null
+    }
+  }
 
   async init(): Promise<SeedBundle> {
-    const bundledPath = resolveBundledSeedPath()
     const cachedPath = resolveCachedBundlePath()
+    const bundled = await this.readBundledFromDisk()
 
-    let bundled: SeedBundle | null = null
     let cached: SeedBundle | null = null
-
-    if (existsSync(bundledPath)) {
-      try {
-        bundled = JSON.parse(await readFile(bundledPath, 'utf-8')) as SeedBundle
-        this.baseBundled = bundled
-      } catch (err) {
-        console.warn('[DataSync] Failed to parse bundled seed:', err)
-      }
-    }
-
     if (existsSync(cachedPath)) {
       try {
         cached = JSON.parse(await readFile(cachedPath, 'utf-8')) as SeedBundle
@@ -145,14 +144,15 @@ export class DataSyncService {
     band: 'all' | 'high' = 'all'
   ): Promise<{ ok: boolean; meta: DatasetMetadata; message: string }> {
     const current = this.getBundle()
+    const diskBundled = await this.readBundledFromDisk()
 
     // Fast path: if switching back to bundled default normal mode 'all'
     if (
-      this.baseBundled &&
-      datasetPath === `patches/${this.baseBundled.meta.patch}/${this.baseBundled.meta.mode}` &&
+      diskBundled &&
+      datasetPath === `patches/${diskBundled.meta.patch}/${diskBundled.meta.mode}` &&
       band === 'all'
     ) {
-      this.bundle = this.baseBundled
+      this.bundle = diskBundled
       return {
         ok: true,
         meta: this.bundle.meta,
@@ -231,7 +231,7 @@ export class DataSyncService {
       )
     ])
 
-    const refBundle = this.baseBundled || current
+    const refBundle = diskBundled || current
     const sortedWr = Object.values(rawHeroes)
       .map((h) => (h.wins + 150) / (h.games + 300))
       .sort((a, b) => b - a)

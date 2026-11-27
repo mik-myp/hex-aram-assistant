@@ -42,6 +42,14 @@ import type {
   WindowBoundsRect
 } from '@shared/types'
 
+// Trim Chromium Spare Renderer (~60 MB) & lazy V8 heap expansion before app initialization
+app.commandLine.appendSwitch(
+  'disable-features',
+  'SpareRendererForSitePerProcess,BackForwardCache,CalculateNativeWinOcclusion'
+)
+app.commandLine.appendSwitch('renderer-process-limit', '2')
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=192')
+
 const DEFAULT_SETTINGS: AiSettings = {
   enabled: true,
   providerName: 'DeepSeek (OpenAI 兼容)',
@@ -58,6 +66,7 @@ const DEFAULT_PREFS: UserPreferences = {
   overlayOpacity: 'solid',
   autoOcrOnMilestone: true,
   minimizeToTray: true,
+  releaseMainOnMatch: true,
   badgePosition: 'top',
   autoHideWhenUnfocused: true,
   hudOffsetX: 0,
@@ -87,6 +96,9 @@ let lastOcrScanAt = 0
 let emptyOfferScans = 0
 let lastHoveredCardSlot: 0 | 1 | 2 = 1
 let manuallyHiddenHud = false
+let userPinnedHudWhileDisconnected = false
+let hudIdleDestroyTimer: NodeJS.Timeout | null = null
+let wasLiveInGame = false
 let lastTrackedDipBounds: WindowBoundsRect | undefined = undefined
 
 let gameState: GameLiveState = {
@@ -367,10 +379,49 @@ async function tickSpatialVisionAndCursor(): Promise<void> {
   }
 }
 
+function clearHudIdleDestroyTimer(): void {
+  if (hudIdleDestroyTimer) {
+    clearTimeout(hudIdleDestroyTimer)
+    hudIdleDestroyTimer = null
+  }
+}
+
+function scheduleIdleHudHibernation(): void {
+  if (hudIdleDestroyTimer || simulatorActive || userPinnedHudWhileDisconnected) return
+  if (!hudWindow || hudWindow.isDestroyed()) return
+  hudWindow.hide()
+  hudIdleDestroyTimer = setTimeout(() => {
+    hudIdleDestroyTimer = null
+    if (
+      gameState.connectionMode === 'disconnected' &&
+      !simulatorActive &&
+      !userPinnedHudWhileDisconnected &&
+      hudWindow &&
+      !hudWindow.isDestroyed()
+    ) {
+      hudWindow.destroy()
+      hudWindow = null
+      terminateOcrWorker().catch(() => {})
+    }
+  }, 8000)
+}
+
 function recomputeRealGameState(): void {
   if (simulatorActive) return
 
   if (latestLive?.inGame) {
+    clearHudIdleDestroyTimer()
+    userPinnedHudWhileDisconnected = false
+
+    // Entering an active match: hibernate mainWindow if enabled to free ~150 MB Renderer + decoded image cache!
+    if (!wasLiveInGame && currentPrefs.releaseMainOnMatch !== false) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.destroy()
+        mainWindow = null
+      }
+    }
+    wasLiveInGame = true
+
     toggleSpatialHud(true)
     gameState = {
       ...gameState,
@@ -388,6 +439,9 @@ function recomputeRealGameState(): void {
       currentItemIds: latestLive.currentItemIds
     }
   } else if (latestLcu?.inChampSelect) {
+    wasLiveInGame = false
+    clearHudIdleDestroyTimer()
+    userPinnedHudWhileDisconnected = false
     resolvedMilestones.clear()
     milestoneAttempts.clear()
     toggleSpatialHud(true)
@@ -410,6 +464,7 @@ function recomputeRealGameState(): void {
       cardSlots: []
     }
   } else {
+    wasLiveInGame = false
     gameState = {
       ...gameState,
       connectionMode: 'disconnected',
@@ -418,6 +473,7 @@ function recomputeRealGameState(): void {
       cardSlots: [],
       isDead: false
     }
+    scheduleIdleHudHibernation()
   }
   broadcastGameState()
 }
@@ -470,10 +526,14 @@ function createMainWindow(): void {
   if (r.isUrl) mainWindow.loadURL(r.target)
   else mainWindow.loadFile(r.target)
 
-  mainWindow.on('close', (e) => {
-    if (!isQuitting && currentPrefs.minimizeToTray) {
-      e.preventDefault()
-      mainWindow?.hide()
+  mainWindow.on('close', () => {
+    // True Hibernation (`v0.3.2`):
+    // If minimizeToTray is enabled, let `mainWindow` actually close & destroy its ~150 MB Chromium
+    // Renderer process (`app.on('window-all-closed')` keeps Tray & LCU/Live watchers running at ~60 MB!).
+    // If minimizeToTray is disabled by the user, closing the main window exits HexBuddy completely.
+    if (!isQuitting && !currentPrefs.minimizeToTray) {
+      isQuitting = true
+      app.quit()
     }
   })
 
@@ -537,29 +597,56 @@ function createSystemTray(): void {
 }
 
 function toggleSpatialHud(forceShow?: boolean, userInitiated = false): boolean {
+  clearHudIdleDestroyTimer()
+  const isDisconnectedIdle = gameState.connectionMode === 'disconnected' && !simulatorActive
+
   if (hudWindow && !hudWindow.isDestroyed()) {
     if (forceShow === true) {
-      if (userInitiated) manuallyHiddenHud = false
+      if (userInitiated) {
+        manuallyHiddenHud = false
+        if (isDisconnectedIdle) userPinnedHudWhileDisconnected = true
+      }
       hudWindow.showInactive()
       return true
     }
     if (forceShow === false) {
-      if (userInitiated) manuallyHiddenHud = true
-      hudWindow.hide()
+      if (userInitiated) {
+        manuallyHiddenHud = true
+        userPinnedHudWhileDisconnected = false
+      }
+      if (isDisconnectedIdle) {
+        // Destroy HUD renderer immediately when closed outside LoL to return ~110 MB RAM!
+        hudWindow.destroy()
+        hudWindow = null
+      } else {
+        hudWindow.hide()
+      }
       return false
     }
     if (hudWindow.isVisible()) {
       manuallyHiddenHud = true
-      hudWindow.hide()
+      userPinnedHudWhileDisconnected = false
+      if (isDisconnectedIdle) {
+        hudWindow.destroy()
+        hudWindow = null
+      } else {
+        hudWindow.hide()
+      }
       return false
     }
     manuallyHiddenHud = false
+    if (userInitiated && isDisconnectedIdle) {
+      userPinnedHudWhileDisconnected = true
+    }
     hudWindow.showInactive()
     return true
   }
 
   if (forceShow === false) return false
   manuallyHiddenHud = false
+  if (userInitiated && isDisconnectedIdle) {
+    userPinnedHudWhileDisconnected = true
+  }
 
   const display = screen.getPrimaryDisplay()
   const bounds = display.bounds
@@ -656,6 +743,44 @@ function setupIpcHandlers(): void {
       prefs: currentPrefs,
       updateState: updateService.getState(),
       miniClickThrough: true
+    }
+  })
+
+  // Lean bootstrap exclusively for Spatial HUD (`MiniOverlay.tsx`): strips unused pinyin indexes
+  // and verbose item HTML descriptions to keep the HUD Renderer V8 heap as small as possible!
+  ipcMain.handle('data:get-hud-bootstrap', () => {
+    const bundle = syncService.getBundle()
+    const slimHeroes: Record<string, typeof bundle.heroes[string]> = {}
+    for (const [id, h] of Object.entries(bundle.heroes)) {
+      slimHeroes[id] = {
+        ...h,
+        title: '',
+        topShoes: undefined,
+        pinyinFull: '',
+        pinyinInitials: ''
+      }
+    }
+    const slimAugments: Record<string, typeof bundle.augments[string]> = {}
+    for (const [id, a] of Object.entries(bundle.augments)) {
+      slimAugments[id] = {
+        ...a,
+        pinyinFull: '',
+        pinyinInitials: ''
+      }
+    }
+    const slimItems: Record<string, typeof bundle.items[string]> = {}
+    for (const [id, im] of Object.entries(bundle.items)) {
+      slimItems[id] = {
+        ...im,
+        fullDesc: ''
+      }
+    }
+    return {
+      heroes: slimHeroes,
+      augments: slimAugments,
+      items: slimItems,
+      gameState,
+      prefs: currentPrefs
     }
   })
 
@@ -946,6 +1071,7 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', async () => {
   globalShortcut.unregisterAll()
+  clearHudIdleDestroyTimer()
   if (hudLoopTimer) clearInterval(hudLoopTimer)
   stopLeagueWindowTracker()
   lcuWatcher?.stop()

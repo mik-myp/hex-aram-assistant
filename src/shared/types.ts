@@ -173,6 +173,7 @@ export interface UserPreferences {
   overlayOpacity: OverlayOpacityMode
   autoOcrOnMilestone: boolean
   minimizeToTray: boolean
+  releaseMainOnMatch?: boolean
   badgePosition: 'top' | 'bottom'
   autoHideWhenUnfocused: boolean
   hudOffsetX: number
