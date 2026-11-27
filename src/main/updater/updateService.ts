@@ -131,6 +131,7 @@ export class AppUpdateService {
     })
 
     try {
+      let data: GithubLatestRelease | null = null
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 10000)
       const res = await fetch(RELEASE_API_URL, {
@@ -141,11 +142,45 @@ export class AppUpdateService {
         signal: controller.signal
       }).finally(() => clearTimeout(timeout))
 
-      if (!res.ok) {
-        throw new Error(`GitHub Release 接口响应异常 (HTTP ${res.status})`)
+      if (res.ok) {
+        data = (await res.json()) as GithubLatestRelease
+      } else {
+        // Fallback when unauthenticated api.github.com hits shared-NAT 60/hr 403 rate limit:
+        // Follow github.com/.../releases/latest 302 redirect -> /releases/tag/vX.Y.Z (never rate-limited!)
+        const htmlRes = await fetch(RELEASES_PAGE_URL, {
+          method: 'HEAD',
+          redirect: 'follow',
+          headers: { 'User-Agent': `HexBuddy/${this.state.currentVersion}` }
+        })
+        const tagMatch = htmlRes.url.match(/\/releases\/tag\/([^/?#]+)/)
+        if (!tagMatch) {
+          throw new Error(`GitHub Release 接口响应异常 (HTTP ${res.status})`)
+        }
+        const tag = decodeURIComponent(tagMatch[1])
+        const ver = normalizeVersion(tag)
+        const dlBase = `https://github.com/${GITHUB_REPO}/releases/download/${tag}`
+        data = {
+          tag_name: tag,
+          html_url: `https://github.com/${GITHUB_REPO}/releases/tag/${tag}`,
+          body: '',
+          published_at: null,
+          assets: [
+            {
+              name: `HexBuddy-Setup-${ver}.exe`,
+              size: 0,
+              digest: null,
+              browser_download_url: `${dlBase}/HexBuddy-Setup-${ver}.exe`
+            },
+            {
+              name: `HexBuddy-Portable-${ver}.exe`,
+              size: 0,
+              digest: null,
+              browser_download_url: `${dlBase}/HexBuddy-Portable-${ver}.exe`
+            }
+          ]
+        }
       }
 
-      const data = (await res.json()) as GithubLatestRelease
       const latestVer = normalizeVersion(data.tag_name || '')
       if (!latestVer) {
         throw new Error('未解析到有效版本号')
