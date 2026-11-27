@@ -1,10 +1,10 @@
 # HexBuddy（海斗军师）
 
 <p>
-  <a href="https://github.com/mik-myp/hex-aram-assistant/releases"><img src="https://img.shields.io/github/v/release/mik-myp/hex-aram-assistant?style=flat-square&color=C8AA6E&label=Latest%20Release" alt="Latest Release" /></a>
-  <img src="https://img.shields.io/badge/Mode-100%25%20Read--Only%20Safe-0AC8B9?style=flat-square" alt="100% Read-Only Safe" />
-  <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20macOS%20Dev-1E293B?style=flat-square" alt="Platform" />
-  <img src="https://img.shields.io/badge/Data%20License-CC%20BY--NC%204.0-64748B?style=flat-square" alt="CC BY-NC 4.0" />
+  <a href="https://github.com/mik-myp/hex-aram-assistant/releases/latest"><img src="./docs/badges/release.svg" alt="Release v0.3.0" /></a>
+  <img src="./docs/badges/safety.svg" alt="100% Read-Only Safe" />
+  <img src="./docs/badges/platform.svg" alt="Windows 10/11" />
+  <img src="./docs/badges/license.svg" alt="CC BY-NC 4.0" />
 </p>
 
 面向《英雄联盟》端游 **海克斯大乱斗（ARAM: Mayhem）** 玩家的 **全透明原位空间 HUD + 静态攻略查阅词典** 桌面助手。
@@ -21,6 +21,19 @@
 - **免安装便携版**：`HexBuddy-Portable-x.y.z.exe`（单文件双击即用）
 
 > **画面模式提示**：为使透明原位 HUD 正常叠加在游戏画面上方，请将英雄联盟画面设置保持默认的 **无边框（Borderless）** 或 **窗口化（Windowed）** 模式（传统独占全屏会屏蔽桌面合成层）。
+
+---
+
+## 🖼️ 界面预览
+
+### 1. 局内三选一原位皇冠贴标 + 防自读窄带标题校准
+![局内三选一原位空间 HUD](./docs/screenshots/hud-3pick.png)
+
+### 2. 选人阶段 10 槽替补席原位贴标 + 阵容体检
+![选人替补席 10 槽原位贴标](./docs/screenshots/hud-bench.png)
+
+### 3. 主窗口高密度静态攻略查阅词典（英雄三列榜单 & 海克斯反查）
+![主窗口静态攻略图鉴](./docs/screenshots/main-guide.png)
 
 ---
 
