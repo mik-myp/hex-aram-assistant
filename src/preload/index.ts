@@ -17,7 +17,8 @@ import type {
   OcrRecognizeResult,
   ShortcutStatusMap,
   TacticalAdvice,
-  UserPreferences
+  UserPreferences,
+  WindowBoundsRect
 } from '@shared/types'
 
 export interface HexBuddyApi {
@@ -119,6 +120,7 @@ export interface HexBuddyApi {
   toggleMaximizeMain: () => Promise<boolean>
   closeMain: () => Promise<void>
   setHudInteractive: (interactive: boolean) => Promise<void>
+  setHudInteractiveRects: (rects: WindowBoundsRect[]) => void
   openExternal: (url: string) => Promise<void>
   copyText: (text: string) => Promise<void>
   copyShopItemText: (itemName: string) => Promise<{ restoredAfterSec: number }>
@@ -182,6 +184,7 @@ const api: HexBuddyApi = {
   toggleMaximizeMain: () => ipcRenderer.invoke('window:toggle-maximize-main'),
   closeMain: () => ipcRenderer.invoke('window:close-main'),
   setHudInteractive: (interactive) => ipcRenderer.invoke('window:set-hud-interactive', interactive),
+  setHudInteractiveRects: (rects) => ipcRenderer.send('window:set-hud-interactive-rects', rects),
   openExternal: (url) => ipcRenderer.invoke('window:open-external', url),
   copyText: (text) => ipcRenderer.invoke('system:copy-text', text),
   copyShopItemText: (itemName) => ipcRenderer.invoke('system:copy-shop-item', itemName),

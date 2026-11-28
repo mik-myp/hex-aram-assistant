@@ -32,6 +32,8 @@ interface HudFountainRoadmapProps {
   setAugSearchQuery: (q: string) => void
   augSearchResults: AugmentMeta[]
   onCollapse: () => void
+  enterInteractive: () => void
+  leaveInteractive: () => void
   onCopyShopItemName: (name: string) => void
 }
 
@@ -57,6 +59,8 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
   setAugSearchQuery,
   augSearchResults,
   onCollapse,
+  enterInteractive,
+  leaveInteractive,
   onCopyShopItemName
 }) => {
   const nextStep = advice.immediateNextItem
@@ -116,7 +120,10 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
 
   return (
     <div
-      className={`mt-2 px-4 py-3 rounded-xl border shadow-2xl space-y-2.5 max-w-3xl whitespace-normal ${resolveFountainSurface(
+      data-hud-interactive="1"
+      onMouseEnter={enterInteractive}
+      onMouseLeave={leaveInteractive}
+      className={`pointer-events-auto mt-2 px-4 py-3 rounded-xl border shadow-2xl space-y-2.5 max-w-3xl whitespace-normal ${resolveFountainSurface(
         opacityMode
       )}`}
     >
@@ -360,7 +367,10 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
         </div>
 
         {showAugPicker && (
-          <div className="absolute bottom-8 right-0 w-56 p-2 rounded-lg bg-[#09101D]/98 border border-[#C8AA6E]/55 shadow-2xl z-50 space-y-1.5 whitespace-normal">
+          <div
+            data-hud-interactive="1"
+            className="pointer-events-auto absolute bottom-8 right-0 w-56 p-2 rounded-lg bg-[#09101D]/98 border border-[#C8AA6E]/55 shadow-2xl z-50 space-y-1.5 whitespace-normal"
+          >
             <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#111C2E] border border-white/15">
               <Search className="w-3 h-3 text-[#94A3B8]" />
               <input

@@ -3,6 +3,11 @@ import type { WindowBoundsRect } from '@shared/types'
 import { getActiveLeagueWindow, raiseWindowTopmostNoActivate } from '../game/windowTracker'
 import { logDiag } from '../logger/diagLogger'
 import { runtime } from '../state/runtimeStore'
+import {
+  startHudCursorHitTestLoop,
+  stopHudCursorHitTestLoop,
+  syncHudInteractiveFromCursor
+} from './hudInteraction'
 
 let lastLeagueForeground = false
 let lastTopmostRaiseAt = 0
@@ -49,6 +54,7 @@ export function ensureHudTopmost(win: BrowserWindow | null = runtime.hudWindow):
     if (process.platform === 'win32') {
       raiseWindowTopmostNoActivate(win.getNativeWindowHandle())
     }
+    syncHudInteractiveFromCursor(true)
     lastTopmostRaiseAt = Date.now()
   } catch (err) {
     logDiag('HUD', `ensureHudTopmost guarded error: ${String(err).slice(0, 120)}`)
@@ -79,12 +85,14 @@ export function syncHudBoundsToLeagueWindow(forceRaiseTopmost = false): void {
     if (!tracked.isForeground) {
       if (runtime.hudWindow.isVisible()) {
         runtime.hudWindow.hide()
+        stopHudCursorHitTestLoop()
       }
       return
     }
     if (tracked.isForeground && !runtime.hudWindow.isVisible() && inActiveSession) {
       runtime.hudWindow.showInactive()
       ensureHudTopmost(runtime.hudWindow)
+      startHudCursorHitTestLoop()
     }
   }
 

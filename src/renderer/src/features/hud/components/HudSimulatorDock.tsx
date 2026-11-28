@@ -98,6 +98,7 @@ export const HudSimulatorDock: React.FC<{
 
   return (
     <div
+      data-hud-interactive="1"
       onMouseEnter={enterInteractive}
       onMouseLeave={leaveInteractive}
       className="pointer-events-auto fixed bottom-2.5 left-1/2 -translate-x-1/2 z-50 px-3.5 py-2 rounded-2xl bg-[#09111F]/96 border border-[#C8AA6E]/50 shadow-2xl flex flex-col gap-1.5 max-w-[96vw]"

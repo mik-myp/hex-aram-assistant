@@ -86,18 +86,19 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
 
   return (
     <div
-      onMouseEnter={enterInteractive}
-      onMouseLeave={leaveInteractive}
       style={{
         left: `${topBarCenterX}px`,
         top: `${topBarTopPx}px`,
         transform: `translateX(-50%) scale(${hudUiScale})`,
         transformOrigin: 'top center'
       }}
-      className="pointer-events-auto absolute z-40 flex flex-col items-center whitespace-nowrap"
+      className="pointer-events-none absolute z-40 flex flex-col items-center whitespace-nowrap"
     >
       <div
-        className={`px-3 py-1 rounded-full border flex items-center gap-2 transition-all shadow-xl ${resolveTopPillSurface(
+        data-hud-interactive="1"
+        onMouseEnter={enterInteractive}
+        onMouseLeave={leaveInteractive}
+        className={`pointer-events-auto px-3 py-1 rounded-full border flex items-center gap-2 transition-all shadow-xl ${resolveTopPillSurface(
           opacityMode,
           hoveredBar || gameState.isDead || isSimulator || showShoppingDrawer
         )}`}
@@ -222,6 +223,8 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
           setAugSearchQuery={setAugSearchQuery}
           augSearchResults={augSearchResults}
           onCollapse={onToggleShoppingDrawer}
+          enterInteractive={enterInteractive}
+          leaveInteractive={leaveInteractive}
           onCopyShopItemName={onCopyShopItemName}
         />
       )}

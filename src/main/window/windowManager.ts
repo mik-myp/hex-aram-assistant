@@ -9,6 +9,11 @@ import {
   normalizeIntegerBounds,
   syncHudBoundsToLeagueWindow
 } from './hudBoundsSync'
+import {
+  resetHudInteractiveState,
+  startHudCursorHitTestLoop,
+  stopHudCursorHitTestLoop
+} from './hudInteraction'
 
 export {
   ensureHudTopmost,
@@ -292,6 +297,7 @@ export function toggleSpatialHud(forceShow?: boolean, userInitiated = false): bo
     if (canRevealNow()) {
       hud.showInactive()
       ensureHudTopmost(hud)
+      startHudCursorHitTestLoop()
     }
     syncHudBoundsToLeagueWindow(true)
     broadcastGameState()
@@ -301,6 +307,7 @@ export function toggleSpatialHud(forceShow?: boolean, userInitiated = false): bo
     if (!hud.isDestroyed() && !hud.isVisible() && canRevealNow()) {
       hud.showInactive()
       ensureHudTopmost(hud)
+      startHudCursorHitTestLoop()
     }
   })
 
@@ -308,9 +315,17 @@ export function toggleSpatialHud(forceShow?: boolean, userInitiated = false): bo
   if (r.isUrl) hud.loadURL(r.target)
   else hud.loadFile(r.target, { hash: 'mini' })
 
+  hud.on('show', () => {
+    startHudCursorHitTestLoop()
+  })
+  hud.on('hide', () => {
+    stopHudCursorHitTestLoop()
+  })
+
   hud.on('closed', () => {
     if (runtime.hudWindow === hud) {
       runtime.hudWindow = null
+      resetHudInteractiveState()
     }
   })
   return true

@@ -8,7 +8,7 @@ import {
   DEFAULT_USER_PREFERENCES,
   parseConfigBackupJson
 } from '@shared/configSchema'
-import type { AiSettings, UserPreferences } from '@shared/types'
+import type { AiSettings, UserPreferences, WindowBoundsRect } from '@shared/types'
 import { triggerManualHudOcr } from '../game/visionLoop'
 import { checkWindowsElevationParity, relaunchAsWindowsAdmin } from '../game/windowTracker'
 import { readLocalMatchHistory } from '../data/matchHistoryStore'
@@ -28,6 +28,7 @@ import {
   syncService,
   updateService
 } from '../state/runtimeStore'
+import { setHudInteractiveRects, setHudRendererHover } from '../window/hudInteraction'
 import { showMainWindow, toggleSpatialHud } from '../window/windowManager'
 
 export function registerSystemAndPrefsIpc(): void {
@@ -149,9 +150,10 @@ export function registerSystemAndPrefsIpc(): void {
   })
   ipcMain.handle('window:close-main', () => runtime.mainWindow?.close())
   ipcMain.handle('window:set-hud-interactive', (_, interactive: boolean) => {
-    if (runtime.hudWindow && !runtime.hudWindow.isDestroyed()) {
-      runtime.hudWindow.setIgnoreMouseEvents(!interactive, { forward: true })
-    }
+    setHudRendererHover(Boolean(interactive))
+  })
+  ipcMain.on('window:set-hud-interactive-rects', (_, rects: WindowBoundsRect[]) => {
+    setHudInteractiveRects(rects)
   })
   ipcMain.handle('window:open-external', (_, url: string) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)

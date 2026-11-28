@@ -35,6 +35,7 @@ import {
 import { computeLocalTacticalAdvice } from '../src/main/ai/tacticalEngine'
 import { summarizeMatchHistoryRecords } from '../src/main/data/matchHistoryStore'
 import { normalizeIntegerBounds } from '../src/main/window/windowManager'
+import { isPointInsideInteractiveRects } from '../src/main/window/hudInteraction'
 import { buildDiagnosticSummary, logDiag } from '../src/main/logger/diagLogger'
 import {
   compareSemver,
@@ -470,12 +471,21 @@ describe('HexBuddy Spatial HUD & Global Tactical Engine', () => {
     expect(parsed.sections.some((s) => s.tone === 'fixed')).toBe(true)
   })
 
-  it('normalizes fractional DPI bounds safely and rejects degenerate rects', () => {
+  it('normalizes fractional DPI bounds safely, rejects degenerate rects, and hit-tests HUD interactive rects', () => {
     expect(
       normalizeIntegerBounds({ x: 10.6, y: 20.4, width: 1066.6667, height: 600.25 })
     ).toEqual({ x: 11, y: 20, width: 1067, height: 600 })
     expect(normalizeIntegerBounds({ x: 0, y: 0, width: 100, height: 100 })).toBeNull()
     expect(normalizeIntegerBounds({ x: Number.NaN, y: 0, width: 1280, height: 720 })).toBeNull()
+
+    const hudRects = [
+      { x: 760, y: 8, width: 400, height: 34 },
+      { x: 600, y: 50, width: 720, height: 180 }
+    ]
+    expect(isPointInsideInteractiveRects(960, 20, hudRects)).toBe(true) // inside top pill
+    expect(isPointInsideInteractiveRects(800, 120, hudRects)).toBe(true) // inside expanded fountain drawer
+    expect(isPointInsideInteractiveRects(400, 20, hudRects)).toBe(false) // transparent margin next to top pill -> click-through!
+    expect(isPointInsideInteractiveRects(960, 500, hudRects)).toBe(false) // center gameplay area -> click-through!
   })
 
   it('adapts steady-mode recommendations globally to purchased AP items, enemy dive/tanks, and post-swap bench comp', () => {

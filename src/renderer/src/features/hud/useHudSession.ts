@@ -47,12 +47,56 @@ export function useHudSession() {
 
   useEffect(() => {
     document.body.style.backgroundColor = 'transparent'
+    let rafId = 0
+    let lastRectsKey = ''
+
+    const syncInteractiveRects = (): void => {
+      const nodes = document.querySelectorAll<HTMLElement>('[data-hud-interactive="1"]')
+      const rects: Array<{ x: number; y: number; width: number; height: number }> = []
+      nodes.forEach((el) => {
+        const r = el.getBoundingClientRect()
+        if (r.width >= 4 && r.height >= 4) {
+          rects.push({
+            x: Math.round(r.x),
+            y: Math.round(r.y),
+            width: Math.round(r.width),
+            height: Math.round(r.height)
+          })
+        }
+      })
+      const key = rects.map((r) => `${r.x},${r.y},${r.width},${r.height}`).join(';')
+      if (key === lastRectsKey) return
+      lastRectsKey = key
+      window.hexbuddy.setHudInteractiveRects(rects)
+    }
+
+    const scheduleSync = (): void => {
+      if (rafId) return
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0
+        syncInteractiveRects()
+      })
+    }
+
     const onResize = (): void => {
       setHostSize({ w: window.innerWidth, h: window.innerHeight })
+      scheduleSync()
     }
+    const mo = new MutationObserver(scheduleSync)
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true })
+    const ro = new ResizeObserver(scheduleSync)
+    ro.observe(document.body)
+    const periodicTimer = window.setInterval(syncInteractiveRects, 350)
     window.addEventListener('resize', onResize)
+    scheduleSync()
+
     return () => {
+      if (rafId) window.cancelAnimationFrame(rafId)
+      window.clearInterval(periodicTimer)
+      mo.disconnect()
+      ro.disconnect()
       window.removeEventListener('resize', onResize)
+      window.hexbuddy.setHudInteractiveRects([])
       window.hexbuddy.setHudInteractive(false)
     }
   }, [])
