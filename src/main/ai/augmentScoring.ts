@@ -4,7 +4,6 @@ import type {
   AugmentMeta,
   GameLiveState,
   HeroDetailGuide,
-  PlaystyleMode,
   SeedBundle,
   SituationalAugmentEval,
   ThreatRadar
@@ -92,7 +91,6 @@ export function evaluateSituationalAugments(
   if (!guide) return []
 
   const ctx = precomputedCtx ?? analyzeMatchContext(bundle, state, heroId)
-  const mode: PlaystyleMode = state.playstyleMode || 'steady'
   const statMap = new Map(guide.augments.map((s) => [s.augmentId, s]))
   const slotByAugId = new Map(state.cardSlots.map((cs) => [cs.augmentId, cs.slotIndex]))
   const pickedMetas = ctx.pickedMetas
@@ -233,7 +231,7 @@ export function evaluateSituationalAugments(
           factors.push({ delta: 0.018, tag: '✨ 契合已出法强装', reason: '本局已走 AP 输出路线，伤害收益放大', priority: 60 })
         } else if ((ctx.builtAdCritCount >= 1 || ctx.builtOnHitCount >= 1) && traits.isAdFriendly) {
           factors.push({ delta: 0.018, tag: '⚔️ 契合已出物理装', reason: '与已出暴击/攻速特效装高度契合', priority: 60 })
-        } else if (ctx.builtTankCount >= 2 && traits.isFragilePenalty && mode !== 'yolo') {
+        } else if (ctx.builtTankCount >= 2 && traits.isFragilePenalty) {
           factors.push({ delta: -0.028, tag: '⚠️ 与已出肉装背离', reason: '已出多件肉装，再拿脆皮增伤互相抵消', priority: 66 })
         }
       }
@@ -251,33 +249,33 @@ export function evaluateSituationalAugments(
       if (!hasConflict) {
         if (threat.enemyTankCount >= 2 && traits.isTankBuster) {
           factors.push({
-            delta: mode === 'counter' ? 0.028 : mode === 'steady' ? 0.018 : 0.01,
+            delta: 0.02,
             tag: `🎯 克制敌方${threat.enemyTankCount}前排`,
             reason: `针对敌方 ${threat.enemyTankCount} 名坦克/肉装前排`,
-            priority: mode === 'counter' ? 78 : 62
+            priority: 68
           })
         }
 
-        if (bossHero && (mode === 'counter' || mode === 'steady')) {
+        if (bossHero) {
           const bossIsTank = bossHero.roles.includes('tank') || bossHero.damageType === 'TANK'
           const bossIsAssassinAd = bossHero.roles.includes('assassin') || bossHero.damageType === 'AD'
           if (bossIsTank && traits.isTankBuster) {
             factors.push({
-              delta: mode === 'counter' ? 0.038 : 0.02,
+              delta: 0.024,
               tag: `🎯 专治${threat.fedBossKills}杀${bossHero.name}`,
               reason: `针对敌方超神大肉【${bossHero.name}】`,
-              priority: mode === 'counter' ? 86 : 68
+              priority: 74
             })
           } else if (bossIsAssassinAd && traits.isAntiDive) {
             factors.push({
-              delta: mode === 'counter' ? 0.036 : 0.018,
+              delta: 0.022,
               tag: `🎯 防${threat.fedBossKills}杀${bossHero.name}秒杀`,
               reason: `防敌方 ${threat.fedBossKills} 杀【${bossHero.name}】进场切杀`,
-              priority: mode === 'counter' ? 86 : 68
+              priority: 74
             })
           } else if (bossIsAssassinAd && traits.isFragilePenalty) {
             factors.push({
-              delta: mode === 'counter' ? -0.03 : -0.02,
+              delta: -0.024,
               tag: `⚠️ 易被${bossHero.name}瞬秒`,
               reason: `敌方 ${threat.fedBossKills} 杀【${bossHero.name}】压制力极强，慎选减血卡`,
               priority: 82
@@ -285,17 +283,17 @@ export function evaluateSituationalAugments(
           }
         }
 
-        if (threat.enemyDiveThreat >= 2 && mode !== 'yolo') {
+        if (threat.enemyDiveThreat >= 2) {
           if (traits.isFragilePenalty) {
             factors.push({
-              delta: mode === 'counter' ? -0.04 : -0.024,
+              delta: -0.026,
               tag: '⚠️ 易被刺客秒杀',
               reason: `敌方 ${threat.enemyDiveThreat} 名突脸，拿脆皮自损极易暴毙`,
               priority: 74
             })
-          } else if (traits.isAntiDive && (mode === 'steady' || mode === 'counter')) {
+          } else if (traits.isAntiDive) {
             factors.push({
-              delta: 0.014,
+              delta: 0.015,
               tag: '🛡️ 抗突脸容错高',
               reason: `面对敌方 ${threat.enemyDiveThreat} 突脸，大幅提升团战存活`,
               priority: 54
@@ -303,9 +301,9 @@ export function evaluateSituationalAugments(
           }
         }
 
-        if (ctx.enemyPokeThreat >= 2 && traits.isSustainAntiPoke && mode !== 'yolo') {
+        if (ctx.enemyPokeThreat >= 2 && traits.isSustainAntiPoke) {
           factors.push({
-            delta: mode === 'torment' ? 0.022 : 0.016,
+            delta: 0.016,
             tag: '💚 扛对面长手消耗',
             reason: `敌方 ${ctx.enemyPokeThreat} 长手 Poke，续航/开团容错大增`,
             priority: 56
@@ -320,50 +318,28 @@ export function evaluateSituationalAugments(
           factors.push({ delta: 0.012, reason: '压制敌方高回复阵容，加快团战减员', priority: 44 })
         }
 
-        if (ctx.allyHasNoTank && traits.isTankCard && (mode === 'team' || mode === 'steady')) {
+        if (ctx.allyHasNoTank && traits.isTankCard) {
           const canFrontline = guide.hero.roles.includes('tank') || guide.hero.roles.includes('fighter')
-          if (canFrontline || mode === 'team') {
+          if (canFrontline) {
             factors.push({
-              delta: mode === 'team' ? 0.038 : 0.016,
+              delta: 0.018,
               tag: '🤝 补全队前排抗伤',
-              reason: mode === 'team' ? '团队模式：弥补我方 0 前排短板' : '我方缺少前排，补坦度稳团战',
-              priority: mode === 'team' ? 82 : 55
+              reason: '我方缺少前排，补坦度稳团战',
+              priority: 55
             })
           }
         }
 
-        if (
-          ctx.allyApCount >= 3 &&
-          (meta.tags.includes('onhit') || /侵蚀|减抗/.test(traits.text)) &&
-          (mode === 'team' || mode === 'steady')
-        ) {
+        if (ctx.allyApCount >= 3 && (meta.tags.includes('onhit') || /侵蚀|减抗/.test(traits.text))) {
           factors.push({
-            delta: mode === 'team' ? 0.032 : 0.015,
+            delta: 0.016,
             tag: '🤝 破魔抗/混伤补位',
             reason: '缓解我方多 AP 怕敌方堆魔抗的困境',
-            priority: mode === 'team' ? 80 : 52
+            priority: 52
           })
         }
 
-        if (mode === 'yolo') {
-          if (traits.isExplosiveYolo) {
-            factors.push({
-              delta: traits.isFragilePenalty ? 0.095 : 0.045,
-              tag: '🔥 独爽极限上限',
-              reason: '独爽模式：输出与爽感直接拉满！',
-              priority: 90
-            })
-          } else if (meta.tags.includes('tank') && !meta.tags.includes('crit')) {
-            factors.push({ delta: -0.025, reason: '独爽模式下纯肉卡爽感偏低', priority: 40 })
-          }
-        } else if (mode === 'torment') {
-          if (traits.isTormentCard) {
-            factors.push({ delta: 0.042, tag: '😈 折磨不死神卡', reason: '折磨模式：无限拉扯/灼烧/续航恶心对面！', priority: 90 })
-          }
-          if (traits.isFragilePenalty) {
-            factors.push({ delta: -0.04, tag: '⚠️ 违背折磨坦度', reason: '折磨流怕暴毙，不选降血玻璃大炮', priority: 80 })
-          }
-        } else if (traits.isFragilePenalty && deltaWr <= -0.02) {
+        if (traits.isFragilePenalty && deltaWr <= -0.02) {
           factors.push({ delta: -0.018, reason: '该英雄拿玻璃大炮胜率偏低', priority: 45 })
         }
       }
@@ -375,7 +351,7 @@ export function evaluateSituationalAugments(
 
       if (!primaryTag) {
         if (deltaWr >= 0.03) primaryTag = `S+ 强力 (+${(deltaWr * 100).toFixed(1)}%)`
-        else if (deltaWr <= -0.03 && mode !== 'yolo') primaryTag = '⚠️ 慎选陷阱'
+        else if (deltaWr <= -0.03) primaryTag = '⚠️ 慎选陷阱'
         else primaryTag = stat?.verdictLabel || '稳健可用'
       }
 
@@ -388,11 +364,7 @@ export function evaluateSituationalAugments(
       }
 
       const topBound = stat?.boundItems?.[0]
-      const effectiveVerdict = hasConflict
-        ? 'TRAP'
-        : mode === 'yolo' && traits.isExplosiveYolo && stat?.verdict === 'TRAP'
-          ? 'S'
-          : stat?.verdict || 'B'
+      const effectiveVerdict = hasConflict ? 'TRAP' : stat?.verdict || 'B'
 
       return {
         augmentId: augId,

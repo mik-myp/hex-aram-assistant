@@ -14,7 +14,6 @@ import type {
   CacheStatsInfo,
   GameLiveState,
   MatchOutcome,
-  PlaystyleMode,
   ShortcutStatusMap,
   UserPreferences,
   WindowBoundsRect
@@ -24,8 +23,6 @@ import type { LcuChampSelectSnapshot, ReadOnlyLcuWatcher } from '../game/lcuWatc
 import type { LiveMatchSnapshot, ReadOnlyLiveWatcher } from '../game/liveWatcher'
 import { getLogDirPath, logDiag } from '../logger/diagLogger'
 import { AppUpdateService } from '../updater/updateService'
-
-export const PLAYSTYLE_ORDER: PlaystyleMode[] = ['steady', 'counter', 'team', 'yolo', 'torment']
 
 export const syncService = new DataSyncService()
 export const updateService = new AppUpdateService()
@@ -73,13 +70,11 @@ export const runtime = {
   clipboardRestoreTimer: null as NodeJS.Timeout | null,
   shortcutStatus: {
     overlay: { accelerator: DEFAULT_AI_SETTINGS.shortcutOverlay, registered: false },
-    ocr: { accelerator: DEFAULT_AI_SETTINGS.shortcutOcr, registered: false },
-    cycleMindset: { accelerator: DEFAULT_AI_SETTINGS.shortcutCycleMindset, registered: false }
+    ocr: { accelerator: DEFAULT_AI_SETTINGS.shortcutOcr, registered: false }
   } as ShortcutStatusMap,
 
   gameState: {
     connectionMode: 'disconnected',
-    playstyleMode: 'steady',
     myHeroId: null,
     allyHeroIds: [],
     benchHeroIds: [],
@@ -125,10 +120,6 @@ export async function loadSettingsAndPrefs(): Promise<void> {
       runtime.currentPrefs = { ...DEFAULT_USER_PREFERENCES }
     }
   }
-  runtime.gameState = {
-    ...runtime.gameState,
-    playstyleMode: runtime.currentPrefs.defaultPlaystyle || 'steady'
-  }
 }
 
 export async function saveSettingsToDisk(
@@ -150,17 +141,7 @@ export async function saveSettingsToDisk(
 
 export async function savePrefsToDisk(next: Partial<UserPreferences>): Promise<UserPreferences> {
   const prevLaunch = Boolean(runtime.currentPrefs.launchAtLogin)
-  const prevDefaultMindset = runtime.currentPrefs.defaultPlaystyle
   runtime.currentPrefs = sanitizeUserPreferences({ ...runtime.currentPrefs, ...next })
-
-  if (
-    next.defaultPlaystyle &&
-    next.defaultPlaystyle !== prevDefaultMindset &&
-    runtime.gameState.connectionMode === 'disconnected'
-  ) {
-    runtime.gameState = { ...runtime.gameState, playstyleMode: runtime.currentPrefs.defaultPlaystyle }
-    broadcastGameState()
-  }
 
   const p = getPrefsPath()
   await mkdir(dirname(p), { recursive: true })
@@ -213,13 +194,6 @@ export function broadcastGameState(): void {
       }
     }
   }
-}
-
-export function cyclePlaystyleMindset(): void {
-  const idx = PLAYSTYLE_ORDER.indexOf(runtime.gameState.playstyleMode)
-  const nextMode = PLAYSTYLE_ORDER[(idx + 1) % PLAYSTYLE_ORDER.length] || 'steady'
-  runtime.gameState = { ...runtime.gameState, playstyleMode: nextMode }
-  broadcastGameState()
 }
 
 export function isInActiveMatchOrChampSelect(): boolean {

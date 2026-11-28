@@ -1,4 +1,4 @@
-import type { AugmentMeta, HeroMeta, PlaystyleMode } from '@shared/types'
+import type { AugmentMeta, HeroMeta } from '@shared/types'
 import type { GlobalMatchContext } from './matchContext'
 
 export interface GoldenComboHit {
@@ -182,24 +182,9 @@ export function classifySampleConfidence(games: number): 'high' | 'medium' | 'lo
  * Recommends Stat Anvil (属性铁砧) priority tailored to live build trajectory & enemy comp.
  */
 export function computeStatAnvilFocus(
-  ctx: GlobalMatchContext,
-  mode: PlaystyleMode
+  ctx: GlobalMatchContext
 ): { primary: string; secondary: string; reason: string } {
   const { threatRadar, effectiveStyle } = ctx
-
-  if (mode === 'yolo') {
-    return effectiveStyle === 'AD_CRIT' || effectiveStyle === 'AD_ONHIT'
-      ? {
-          primary: '攻击力 / 暴击伤害 / 穿甲',
-          secondary: '攻速 / 移速',
-          reason: '独爽模式：铁砧全追极限输出与斩杀面板'
-        }
-      : {
-          primary: '法术强度 / 法术穿透',
-          secondary: '技能急速 / 移速',
-          reason: '独爽模式：法强与法穿拉满，一发技能核弹清屏'
-        }
-  }
 
   if (effectiveStyle === 'TANK') {
     if (threatRadar.enemyApRatio >= 0.65) {

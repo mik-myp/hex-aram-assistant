@@ -240,12 +240,11 @@ function createMockBundle(): SeedBundle {
   }
 }
 
-describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
-  it('switches Malphite dynamically between Team Tank, YOLO AP Nuke, and Counter Boss', () => {
+describe('HexBuddy Spatial HUD & Global Tactical Engine', () => {
+  it('evaluates Malphite globally with gold affordability, team tank needs, and fed-boss counter items', () => {
     const bundle = createMockBundle()
     const baseState: GameLiveState = {
       connectionMode: 'live-in-game',
-      playstyleMode: 'team',
       myHeroId: '54',
       allyHeroIds: ['54', '10', '238', '10'], // 0 other tanks!
       benchHeroIds: [],
@@ -268,40 +267,27 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
       lastUpdatedAt: Date.now()
     }
 
-    // 1. In TEAM mode: Goliath ('1002') wins and Heartsteel ('3084') is top item
-    const teamAdvice = computeLocalTacticalAdvice(bundle, baseState, '54')
-    const teamWinner = teamAdvice.situationalCandidates.find((c) => c.isRecommendedPick)
-    expect(teamWinner?.augmentId).toBe('1002')
-    expect(teamAdvice.immediateNextItem?.itemId).toBe('3084')
-    expect(teamAdvice.immediateNextItem?.affordableNow).toBe(false) // 2900 < 3000, needs 100g
-    expect(teamAdvice.immediateNextItem?.goldRemaining).toBe(100)
+    // 1. Default global evaluation favors Goliath ('1002') over fragile Glass Cannon against 12-kill Zed, and recommends Heartsteel ('3084')
+    const advice = computeLocalTacticalAdvice(bundle, baseState, '54')
+    const winner = advice.situationalCandidates.find((c) => c.isRecommendedPick)
+    expect(winner?.augmentId).toBe('1002')
+    expect(advice.immediateNextItem?.itemId).toBe('3084')
+    expect(advice.immediateNextItem?.affordableNow).toBe(false) // 2900 < 3000, needs 100g
+    expect(advice.immediateNextItem?.goldRemaining).toBe(100)
 
-    // 2. Flip to YOLO ('只顾自己爽') mode: Glass Cannon ('1006') overtakes Goliath, and build pivots to AP Nuke Malignance ('3118', 2700g -> affordableNow === true!)
-    const yoloAdvice = computeLocalTacticalAdvice(
+    // 2. Once Malphite owns 1 item against 12-kill AD assassin Zed, Randuin's ('3143') triggers as anti-boss counter!
+    const midGameAdvice = computeLocalTacticalAdvice(
       bundle,
-      { ...baseState, playstyleMode: 'yolo' },
+      { ...baseState, currentItemIds: ['3084'] },
       '54'
     )
-    const yoloWinner = yoloAdvice.situationalCandidates.find((c) => c.isRecommendedPick)
-    expect(yoloWinner?.augmentId).toBe('1006')
-    expect(yoloAdvice.immediateNextItem?.itemId).toBe('3118')
-    expect(yoloAdvice.immediateNextItem?.affordableNow).toBe(true)
-
-    // 3. Flip to COUNTER ('针对大爹') mode: 12-kill Zed triggers Randuin's ('3143') anti-boss counter!
-    const counterAdvice = computeLocalTacticalAdvice(
-      bundle,
-      { ...baseState, playstyleMode: 'counter' },
-      '54'
-    )
-    expect(counterAdvice.dynamicBuildPlan[0].itemId).toBe('3143')
-    expect(counterAdvice.dynamicBuildPlan[0].sourceTag).toBe('专治大爹')
+    expect(midGameAdvice.dynamicBuildPlan.some((s) => s.itemId === '3143' && s.sourceTag === '专治大爹')).toBe(true)
   })
 
   it('flags hard mechanic conflicts (e.g. Back to Basics sealing R vs Ultimate Awakening)', () => {
     const bundle = createMockBundle()
     const state: GameLiveState = {
       connectionMode: 'live-in-game',
-      playstyleMode: 'steady',
       myHeroId: '10',
       allyHeroIds: ['10'],
       benchHeroIds: [],
@@ -444,8 +430,7 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
       hudScale: 9.9,
       hudOffsetX: -25,
       hudOffsetY: 12.4,
-      overlayOpacity: 'unknown',
-      defaultPlaystyle: 'torment'
+      overlayOpacity: 'unknown'
     })
     expect(migrated.schemaVersion).toBe(CURRENT_CONFIG_SCHEMA_VERSION)
     expect(migrated.favoriteHeroIds).toEqual(['10', '54'])
@@ -454,13 +439,11 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     expect(migrated.hudOffsetX).toBe(-8)
     expect(migrated.hudOffsetY).toBe(8)
     expect(migrated.overlayOpacity).toBe('solid')
-    expect(migrated.defaultPlaystyle).toBe('torment')
     expect(migrated.enableBenchBadges).toBe(true)
 
     const ai = sanitizeAiSettings({
       apiKey: '  sk-secret-12345  ',
-      toneStyle: 'witty',
-      shortcutCycleMindset: 'Alt+M'
+      toneStyle: 'witty'
     })
     const exported = buildConfigBackupJson(migrated, ai)
     expect(exported).not.toContain('sk-secret-12345')
@@ -468,7 +451,7 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     const restored = parseConfigBackupJson(exported, 'sk-local-preserved')
     expect(restored.settings.apiKey).toBe('sk-local-preserved')
     expect(restored.settings.toneStyle).toBe('witty')
-    expect(restored.prefs.defaultPlaystyle).toBe('torment')
+    expect(restored.prefs.favoriteHeroIds).toEqual(['10', '54'])
   })
 
   it('extracts Chinese CHANGELOG sections and parses structured release notes cards', () => {
@@ -500,7 +483,6 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     // AP Malphite already bought Malignance ('3118') -> steady mode recognizes AP build trajectory & recommends AP follow-up ('4645') and favors burn/haste over tank!
     const apMalphiteState: GameLiveState = {
       connectionMode: 'live-in-game',
-      playstyleMode: 'steady',
       myHeroId: '54',
       allyHeroIds: ['54', '36', '10', '238'],
       benchHeroIds: [],
@@ -633,31 +615,51 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     }
     expect(Date.now() - start).toBeLessThan(150)
 
-    // Verify dual-channel fusion merges 2 confident icons + 1 OCR slot cleanly
+    // Verify dual-channel fusion prioritizes OCR title over conflicting icon and drops non-confident icon noise
     const fused = mergeIconAndOcrPasses(
       {
         slotMatches: new Map([
-          [0, { augmentId: '1001', score: 0.91, margin: 0.3, confident: true }],
+          [0, { augmentId: '9999', score: 0.79, margin: 0.14, confident: true }], // icon guessed wrong card '9999' under hover glow
+          [1, { augmentId: '1008', score: 0.65, margin: 0.04, confident: false }], // weak non-confident icon noise -> dropped!
           [2, { augmentId: '1006', score: 0.88, margin: 0.25, confident: true }]
         ]),
         totalSlots: 3,
         confidentCount: 2,
-        matchedIds: ['1001', '1006'],
-        avgScore: 0.895,
+        matchedIds: ['9999', '1008', '1006'],
+        avgScore: 0.77,
         elapsedMs: 3
       },
       {
         matchedIds: ['1001', '1004'],
         slotMap: new Map([
-          [0, '1001'],
+          [0, '1001'], // exact OCR title beats icon guess '9999'
           [1, '1004']
         ]),
+        totalSlots: 3,
         rawLines: ['泰坦的坚决', '回归基本功'],
         avgConf: 0.92
       }
     )
     expect(fused.matchedIds).toEqual(['1001', '1004', '1006'])
+    expect(fused.slotMap.get(0)).toBe('1001')
     expect(fused.slotMap.get(1)).toBe('1004')
+
+    // Non-confident icon-only noise produces 0 cards (no mid-combat false-positive popups!)
+    const noiseOnly = mergeIconAndOcrPasses(
+      {
+        slotMatches: new Map([
+          [0, { augmentId: '1001', score: 0.66, margin: 0.05, confident: false }],
+          [1, { augmentId: '1004', score: 0.64, margin: 0.03, confident: false }]
+        ]),
+        totalSlots: 3,
+        confidentCount: 0,
+        matchedIds: ['1001', '1004'],
+        avgScore: 0.65,
+        elapsedMs: 3
+      },
+      null
+    )
+    expect(noiseOnly.matchedIds).toEqual([])
   })
 
   it('detects golden augment combos, melee/scope conflicts, sample confidence, and stat anvil focus', () => {
@@ -667,7 +669,6 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     // 1. Already picked 炼狱导管 (1045), offered 尤里卡 (1030) vs 大力 (1007) -> triggers golden combo 炼狱无限火链!
     const comboState: GameLiveState = {
       connectionMode: 'live-in-game',
-      playstyleMode: 'steady',
       myHeroId: '1', // Annie (AP)
       allyHeroIds: ['1', '54', '10', '238', '36'],
       benchHeroIds: [],
@@ -851,7 +852,6 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
       realBundle,
       {
         connectionMode: 'live-in-game',
-        playstyleMode: 'steady',
         myHeroId: '1',
         allyHeroIds: ['1', '54', '10', '238', '36'],
         benchHeroIds: [],
@@ -887,7 +887,6 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
       realBundle,
       {
         connectionMode: 'live-in-game',
-        playstyleMode: 'steady',
         myHeroId: '1',
         allyHeroIds: ['1', '54', '10', '238', '36'],
         benchHeroIds: [],
@@ -922,7 +921,6 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
       realBundle,
       {
         connectionMode: 'live-in-game',
-        playstyleMode: 'steady',
         myHeroId: '1',
         allyHeroIds: ['1'],
         benchHeroIds: [],
@@ -960,35 +958,41 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     expect(cleanPrefs.favoriteAugmentIds).toEqual(['1045', '1030'])
     expect(cleanPrefs.blacklistedAugmentIds).toEqual(['1007'])
 
-    // 2. Selecting an archetype pushes its recommended items as '流派定制' and boosts its core augments
+    // 2. Selecting different archetypes actually changes the dynamicBuildPlan items!
     const coreAugId = targetArch.coreAugmentIds[0]
-    const advice = computeLocalTacticalAdvice(
+    const baseArchState: GameLiveState = {
+      connectionMode: 'live-in-game',
+      selectedArchetypeId: targetArch.id,
+      myHeroId: '1',
+      allyHeroIds: ['1'],
+      benchHeroIds: [],
+      enemyHeroIds: [],
+      enemyPlayers: [],
+      currentLevel: 7,
+      currentGold: 3000,
+      isDead: true,
+      isAugmentMilestone: true,
+      currentItemIds: [],
+      pickedAugmentIds: [],
+      candidateAugmentIds: [coreAugId, '1030', '1007'].filter((v, i, a) => a.indexOf(v) === i),
+      cardSlots: [],
+      lastUpdatedAt: Date.now()
+    }
+    const advice = computeLocalTacticalAdvice(realBundle, baseArchState, '1', cleanPrefs)
+    expect(advice.activeArchetypeId).toBe(targetArch.id)
+    expect(advice.availableArchetypes?.length).toBeGreaterThanOrEqual(2)
+    expect(advice.dynamicBuildPlan.some((s) => s.sourceTag === '流派定制')).toBe(true)
+
+    const secondArch = guide.archetypes[1]
+    const advice2 = computeLocalTacticalAdvice(
       realBundle,
-      {
-        connectionMode: 'live-in-game',
-        playstyleMode: 'steady',
-        selectedArchetypeId: targetArch.id,
-        myHeroId: '1',
-        allyHeroIds: ['1'],
-        benchHeroIds: [],
-        enemyHeroIds: [],
-        enemyPlayers: [],
-        currentLevel: 7,
-        currentGold: 3000,
-        isDead: true,
-        isAugmentMilestone: true,
-        currentItemIds: [],
-        pickedAugmentIds: [],
-        candidateAugmentIds: [coreAugId, '1030', '1007'].filter((v, i, a) => a.indexOf(v) === i),
-        cardSlots: [],
-        lastUpdatedAt: Date.now()
-      },
+      { ...baseArchState, selectedArchetypeId: secondArch.id },
       '1',
       cleanPrefs
     )
-    expect(advice.activeArchetypeId).toBe(targetArch.id)
-    expect(advice.availableArchetypes?.length).toBeGreaterThanOrEqual(1)
-    expect(advice.dynamicBuildPlan.some((s) => s.sourceTag === '流派定制')).toBe(true)
+    expect(advice.dynamicBuildPlan.slice(0, 3).map((s) => s.itemId)).not.toEqual(
+      advice2.dynamicBuildPlan.slice(0, 3).map((s) => s.itemId)
+    )
 
     const favEval = advice.situationalCandidates.find((c) => c.augmentId === '1030')
     expect(favEval?.userPreference).toBe('favorite')

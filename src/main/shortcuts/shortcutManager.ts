@@ -1,6 +1,6 @@
 import { globalShortcut } from 'electron'
 import type { ShortcutSlotStatus, ShortcutStatusMap } from '@shared/types'
-import { cyclePlaystyleMindset, runtime } from '../state/runtimeStore'
+import { runtime } from '../state/runtimeStore'
 
 function registerSingleShortcutSlot(
   accel: string,
@@ -58,11 +58,6 @@ export function registerGlobalShortcuts(handlers: {
       runtime.currentSettings.shortcutOcr,
       used,
       handlers.onManualOcr
-    ),
-    cycleMindset: registerSingleShortcutSlot(
-      runtime.currentSettings.shortcutCycleMindset,
-      used,
-      cyclePlaystyleMindset
     )
   }
   return runtime.shortcutStatus

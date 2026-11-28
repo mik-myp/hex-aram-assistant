@@ -46,7 +46,7 @@ const MainWorkspace: React.FC = () => {
   ): void => {
     window.hexbuddy.setSimulator(scene)
     if (scene !== 'off') {
-      ws.showNotice('已在全屏原位 HUD 中开启实景贴标演练（可在屏幕上方直接切换 5 档心态）')
+      ws.showNotice('已在全屏原位 HUD 中开启实景演练（点击顶部「出装」可展开流派速切与威胁雷达）')
     }
   }
 

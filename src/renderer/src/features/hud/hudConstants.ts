@@ -1,12 +1,4 @@
-import type { OverlayOpacityMode, PlaystyleMode } from '@shared/types'
-
-export const PLAYSTYLE_MODES: Array<{ key: PlaystyleMode; short: string; tip: string }> = [
-  { key: 'steady', short: '⚖️ 稳健', tip: '综合高胜率核心与局势克制，求稳上分' },
-  { key: 'counter', short: '🎯 针对', tip: '专治敌方人头大爹、重装坦克与强回血' },
-  { key: 'team', short: '🤝 团队', tip: '缺前排补肉、全队偏AP自动转物理/减抗' },
-  { key: 'yolo', short: '🔥 独爽', tip: '只顾自己爽！无视防守拉满核弹/暴击伤害上限' },
-  { key: 'torment', short: '😈 折磨', tip: '无限灼烧减速或叠肉回血，不死恶心流' }
-]
+import type { OverlayOpacityMode } from '@shared/types'
 
 export const TEN_BENCH_TEST_IDS = ['10', '223', '54', '222', '36', '14', '67', '238', '16', '51']
 

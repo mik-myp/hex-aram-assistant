@@ -31,6 +31,8 @@ export function useHudSession() {
   const [aiBriefBusy, setAiBriefBusy] = useState(false)
   const [aiBrief, setAiBrief] = useState<string | null>(null)
   const [hoveredBar, setHoveredBar] = useState(false)
+  const [fountainCollapsed, setFountainCollapsed] = useState(false)
+  const [manualDrawerOpen, setManualDrawerOpen] = useState(false)
   const [copiedItemTip, setCopiedItemTip] = useState<string | null>(null)
   const [showAugPicker, setShowAugPicker] = useState(false)
   const [augSearchQuery, setAugSearchQuery] = useState('')
@@ -72,6 +74,12 @@ export function useHudSession() {
         ) {
           setTimeout(() => window.hexbuddy.releaseRendererCache(), 500)
         }
+        if (!prev?.isDead && st.isDead) {
+          setFountainCollapsed(false)
+        }
+        if (prev?.isDead && !st.isDead) {
+          setManualDrawerOpen(false)
+        }
         return st
       })
       setAiBrief(null)
@@ -107,7 +115,6 @@ export function useHudSession() {
   const tacticalFingerprint = gameState
     ? [
         heroId,
-        gameState.playstyleMode,
         gameState.selectedArchetypeId || '',
         gameState.currentLevel,
         Math.floor((gameState.currentGold || 0) / 50),
@@ -197,6 +204,10 @@ export function useHudSession() {
     aiBrief,
     setAiBrief,
     hoveredBar,
+    fountainCollapsed,
+    setFountainCollapsed,
+    manualDrawerOpen,
+    setManualDrawerOpen,
     copiedItemTip,
     showAugPicker,
     setShowAugPicker,

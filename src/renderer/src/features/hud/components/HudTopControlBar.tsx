@@ -1,5 +1,5 @@
 import React from 'react'
-import { BookOpen, Camera, Loader2, Plus, Search, X } from 'lucide-react'
+import { BookOpen, Camera, ChevronDown, ChevronUp, Loader2, X } from 'lucide-react'
 import type {
   AugmentMeta,
   GameLiveState,
@@ -9,7 +9,7 @@ import type {
   OverlayOpacityMode,
   TacticalAdvice
 } from '@shared/types'
-import { PLAYSTYLE_MODES, resolveTopPillSurface } from '../hudConstants'
+import { resolveTopPillSurface } from '../hudConstants'
 import { HudFountainRoadmap } from './HudFountainRoadmap'
 
 interface HudTopControlBarProps {
@@ -23,6 +23,7 @@ interface HudTopControlBarProps {
   isChampSelect: boolean
   isSimulator: boolean
   showShoppingDrawer: boolean
+  onToggleShoppingDrawer: () => void
   hoveredBar: boolean
   topBarCenterX: number
   topBarTopPx: number
@@ -57,6 +58,7 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
   isChampSelect,
   isSimulator,
   showShoppingDrawer,
+  onToggleShoppingDrawer,
   hoveredBar,
   topBarCenterX,
   topBarTopPx,
@@ -95,9 +97,9 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
       className="pointer-events-auto absolute z-40 flex flex-col items-center whitespace-nowrap"
     >
       <div
-        className={`px-3 py-1.5 rounded-full border flex items-center gap-2.5 transition-all shadow-xl ${resolveTopPillSurface(
+        className={`px-3 py-1 rounded-full border flex items-center gap-2 transition-all shadow-xl ${resolveTopPillSurface(
           opacityMode,
-          hoveredBar || gameState.isDead || isSimulator
+          hoveredBar || gameState.isDead || isSimulator || showShoppingDrawer
         )}`}
       >
         {currentHero && (
@@ -105,7 +107,7 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
             <img
               src={currentHero.avatarUrl}
               alt=""
-              className="w-6 h-6 rounded-full border border-[#C8AA6E]/60"
+              className="w-5 h-5 rounded-full border border-[#C8AA6E]/60"
             />
             <span className="font-bold text-[#F0E6D2]">{currentHero.name}</span>
             {currentHero.skillOrder && (
@@ -116,28 +118,8 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
           </div>
         )}
 
-        <div className="flex items-center gap-0.5 bg-black/45 p-0.5 rounded-full border border-white/10">
-          {PLAYSTYLE_MODES.map((pm) => {
-            const active = gameState.playstyleMode === pm.key
-            return (
-              <button
-                key={pm.key}
-                onClick={() => window.hexbuddy.setPlaystyleMode(pm.key)}
-                title={pm.tip}
-                className={`px-2 py-0.5 rounded-full text-[11px] cursor-pointer transition whitespace-nowrap ${
-                  active
-                    ? 'bg-[#C8AA6E] text-[#070B12] font-bold shadow'
-                    : 'text-[#94A3B8] hover:text-[#F0E6D2]'
-                }`}
-              >
-                {pm.short}
-              </button>
-            )
-          })}
-        </div>
-
         {nextItem && nextStep && !isChampSelect && (
-          <div className="flex items-center gap-1.5 pl-1 border-l border-white/15">
+          <div className="flex items-center gap-1.5">
             <span className="text-[11px] text-[#94A3B8]">下一件:</span>
             <img
               src={nextItem.iconUrl}
@@ -157,85 +139,38 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
           </div>
         )}
 
-        {!isChampSelect && (
-          <div className="flex items-center gap-1 pl-1 border-l border-white/15 relative">
-            {gameState.pickedAugmentIds.map((aid) => {
-              const am = augments[aid]
-              if (!am) return null
-              return (
-                <button
-                  key={aid}
-                  onClick={() =>
-                    window.hexbuddy.updateAugments({
-                      pickedAugmentIds: gameState.pickedAugmentIds.filter((x) => x !== aid)
-                    })
-                  }
-                  title={`已记录：${am.name}（点击移除）`}
-                  className="w-5 h-5 rounded bg-black/50 border border-[#C8AA6E]/40 overflow-hidden cursor-pointer hover:border-rose-400"
-                >
-                  {am.iconUrl && <img src={am.iconUrl} alt="" className="w-full h-full" />}
-                </button>
-              )
-            })}
-
-            {gameState.pickedAugmentIds.length < 6 && (
-              <button
-                onClick={() => setShowAugPicker((v) => !v)}
-                title="手动补录或修正本局已拿海克斯（最多 6 个，支持拼音如 zghs）"
-                className="w-5 h-5 rounded bg-white/8 hover:bg-white/15 border border-dashed border-[#C8AA6E]/45 flex items-center justify-center text-[#E2C992] cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
-            )}
-
-            {showAugPicker && (
-              <div className="absolute top-8 right-0 w-56 p-2 rounded-lg bg-[#09101D]/98 border border-[#C8AA6E]/55 shadow-2xl z-50 space-y-1.5 whitespace-normal">
-                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#111C2E] border border-white/15">
-                  <Search className="w-3 h-3 text-[#94A3B8]" />
-                  <input
-                    autoFocus
-                    value={augSearchQuery}
-                    onChange={(e) => setAugSearchQuery(e.target.value)}
-                    placeholder="搜海克斯 / 拼音 (zghs)"
-                    className="bg-transparent outline-none text-[11px] text-[#F0E6D2] w-full"
-                  />
-                </div>
-                <div className="max-h-44 overflow-y-auto space-y-0.5">
-                  {augSearchResults.map((am) => {
-                    const already = gameState.pickedAugmentIds.includes(am.id)
-                    return (
-                      <button
-                        key={am.id}
-                        disabled={already}
-                        onClick={() => {
-                          window.hexbuddy.updateAugments({
-                            pickedAugmentIds: [...gameState.pickedAugmentIds, am.id].slice(-6)
-                          })
-                          setShowAugPicker(false)
-                          setAugSearchQuery('')
-                        }}
-                        className="w-full px-1.5 py-1 rounded hover:bg-white/10 flex items-center gap-1.5 text-left text-[11px] text-[#F0E6D2] disabled:opacity-40 cursor-pointer"
-                      >
-                        {am.iconUrl && <img src={am.iconUrl} alt="" className="w-4 h-4 rounded" />}
-                        <span className="truncate flex-1">{am.name}</span>
-                        {already && <span className="text-[9px] text-[#0AC8B9]">已加</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="flex items-center gap-1 pl-1 border-l border-white/15">
+        <div className="flex items-center gap-1 pl-1.5 border-l border-white/15">
+          {!isChampSelect && advice && (
+            <button
+              type="button"
+              onClick={onToggleShoppingDrawer}
+              title={showShoppingDrawer ? '收起出装与战局面板' : '点击展开出装、流派速切与敌方威胁雷达'}
+              className={`px-2 py-0.5 rounded-full text-[11px] flex items-center gap-0.5 cursor-pointer transition ${
+                showShoppingDrawer
+                  ? 'bg-[#C8AA6E]/25 text-[#F3DC9E] border border-[#C8AA6E]/50'
+                  : 'bg-white/8 hover:bg-white/15 text-[#CBD5E1]'
+              }`}
+            >
+              {showShoppingDrawer ? (
+                <>
+                  <ChevronUp className="w-3 h-3" />
+                  <span>收起</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3 h-3" />
+                  <span>出装</span>
+                </>
+              )}
+            </button>
+          )}
           <button
             onClick={async () => {
               setOcrBusy(true)
               await window.hexbuddy.captureScreenOcr()
               setOcrBusy(false)
             }}
-            title="手动重识三选一 (Alt+S)"
+            title="手动重识海克斯卡片 (Alt+S)"
             className="p-1 rounded-full hover:bg-white/10 text-[#0AC8B9] cursor-pointer"
           >
             {ocrBusy ? (
@@ -270,7 +205,9 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
           currentGold={gameState.currentGold}
           advice={advice}
           heroes={heroes}
+          augments={augments}
           items={items}
+          pickedAugmentIds={gameState.pickedAugmentIds}
           enemyCount={gameState.enemyHeroIds.length}
           opacityMode={opacityMode}
           densityMode={densityMode}
@@ -279,6 +216,12 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
           setAiBriefBusy={setAiBriefBusy}
           aiBrief={aiBrief}
           setAiBrief={setAiBrief}
+          showAugPicker={showAugPicker}
+          setShowAugPicker={setShowAugPicker}
+          augSearchQuery={augSearchQuery}
+          setAugSearchQuery={setAugSearchQuery}
+          augSearchResults={augSearchResults}
+          onCollapse={onToggleShoppingDrawer}
           onCopyShopItemName={onCopyShopItemName}
         />
       )}

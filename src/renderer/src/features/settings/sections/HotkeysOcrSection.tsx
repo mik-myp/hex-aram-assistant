@@ -66,20 +66,11 @@ export const HotkeysOcrSection: React.FC<HotkeysOcrSectionProps> = ({
           />
 
           <HotkeyRecorderRow
-            label="手动重识三选一海克斯卡片"
+            label="手动重识海克斯卡片"
             description="若自动识屏因特效遮挡漏扫，按一下立即重新识屏（默认 Alt+S）"
             value={settings.shortcutOcr}
             status={shortcutStatus?.ocr}
             onCommit={(accel) => onPatchSettings({ shortcutOcr: accel })}
-          />
-
-          <HotkeyRecorderRow
-            label="局内快速循环切换 5 档心态"
-            description="团战间隙免鼠标一键切换「稳健 → 针对 → 团队 → 独爽 → 折磨」（可点 × 停用）"
-            value={settings.shortcutCycleMindset}
-            status={shortcutStatus?.cycleMindset}
-            allowClear
-            onCommit={(accel) => onPatchSettings({ shortcutCycleMindset: accel })}
           />
         </CardContent>
       </Card>

@@ -5,7 +5,6 @@ import type {
   HudDensityMode,
   OcrEngineMode,
   OverlayOpacityMode,
-  PlaystyleMode,
   UiFontScale,
   UserPreferences
 } from './types'
@@ -16,7 +15,6 @@ const VALID_ROLES = new Set<HeroRole>(['mage', 'marksman', 'tank', 'fighter', 'a
 const VALID_OPACITY = new Set<OverlayOpacityMode>(['solid', 'glass', 'clear'])
 const VALID_DENSITY = new Set<HudDensityMode>(['detailed', 'compact'])
 const VALID_FONT_SCALE = new Set<UiFontScale>(['normal', 'comfortable', 'large'])
-const VALID_PLAYSTYLE = new Set<PlaystyleMode>(['steady', 'counter', 'team', 'yolo', 'torment'])
 const VALID_OCR_MODE = new Set<OcrEngineMode>(['auto', 'tesseract'])
 const VALID_TONE = new Set<AiToneStyle>(['concise', 'witty', 'beginner'])
 
@@ -33,7 +31,6 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   enableBenchBadges: true,
   enableThreePickBadges: true,
   enableFountainStrip: true,
-  defaultPlaystyle: 'steady',
   autoSyncDataOnBoot: true,
   restoreClipboardAfterCopy: false,
   ocrEngineMode: 'auto',
@@ -57,8 +54,7 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   model: 'deepseek-chat',
   toneStyle: 'concise',
   shortcutOverlay: 'Alt+H',
-  shortcutOcr: 'Alt+S',
-  shortcutCycleMindset: 'Alt+M'
+  shortcutOcr: 'Alt+S'
 }
 
 function clampFinite(val: unknown, min: number, max: number, fallback: number): number {
@@ -141,12 +137,6 @@ export function sanitizeUserPreferences(raw: unknown): UserPreferences {
       ? (src.uiFontScale as UiFontScale)
       : DEFAULT_USER_PREFERENCES.uiFontScale
 
-  const defaultPlaystyle =
-    typeof src.defaultPlaystyle === 'string' &&
-    VALID_PLAYSTYLE.has(src.defaultPlaystyle as PlaystyleMode)
-      ? (src.defaultPlaystyle as PlaystyleMode)
-      : DEFAULT_USER_PREFERENCES.defaultPlaystyle
-
   const ocrEngineMode =
     typeof src.ocrEngineMode === 'string' && VALID_OCR_MODE.has(src.ocrEngineMode as OcrEngineMode)
       ? (src.ocrEngineMode as OcrEngineMode)
@@ -186,7 +176,6 @@ export function sanitizeUserPreferences(raw: unknown): UserPreferences {
       src.enableFountainStrip,
       DEFAULT_USER_PREFERENCES.enableFountainStrip
     ),
-    defaultPlaystyle,
     autoSyncDataOnBoot: asBool(src.autoSyncDataOnBoot, DEFAULT_USER_PREFERENCES.autoSyncDataOnBoot),
     restoreClipboardAfterCopy: asBool(
       src.restoreClipboardAfterCopy,
@@ -237,11 +226,7 @@ export function sanitizeAiSettings(raw: unknown): AiSettings {
     shortcutOcr:
       typeof src.shortcutOcr === 'string'
         ? src.shortcutOcr.trim().slice(0, 64)
-        : DEFAULT_AI_SETTINGS.shortcutOcr,
-    shortcutCycleMindset:
-      typeof src.shortcutCycleMindset === 'string'
-        ? src.shortcutCycleMindset.trim().slice(0, 64)
-        : DEFAULT_AI_SETTINGS.shortcutCycleMindset
+        : DEFAULT_AI_SETTINGS.shortcutOcr
   }
 }
 

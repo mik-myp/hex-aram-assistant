@@ -66,23 +66,28 @@ export function matchWordsAdaptiveColumns(
       gameW,
       gameH
     )
-    const slotMap = new Map<AugmentOfferSlotIndex, string>()
-    const matchedIds: string[] = []
-    let confSum = 0
-    hits.forEach((h, idx) => {
-      const col = fitted.slotIndices[idx]
-      if (col !== undefined && !slotMap.has(col)) {
-        slotMap.set(col, h.id)
-        matchedIds.push(h.id)
-        confSum += h.conf
+    const maxAllowedResidual = Math.max(52, gameH * 0.13)
+    if (fitted.residual <= maxAllowedResidual) {
+      const slotMap = new Map<AugmentOfferSlotIndex, string>()
+      const matchedIds: string[] = []
+      let confSum = 0
+      hits.forEach((h, idx) => {
+        const col = fitted.slotIndices[idx]
+        if (col !== undefined && !slotMap.has(col)) {
+          slotMap.set(col, h.id)
+          matchedIds.push(h.id)
+          confSum += h.conf
+        }
+      })
+      if (matchedIds.length >= 2) {
+        return {
+          matchedIds,
+          slotMap,
+          totalSlots: fitted.totalSlots,
+          rawLines,
+          avgConf: Number((confSum / matchedIds.length).toFixed(3))
+        }
       }
-    })
-    return {
-      matchedIds,
-      slotMap,
-      totalSlots: fitted.totalSlots,
-      rawLines,
-      avgConf: matchedIds.length > 0 ? Number((confSum / matchedIds.length).toFixed(3)) : 0
     }
   }
 
@@ -92,6 +97,9 @@ export function matchWordsAdaptiveColumns(
     if (parts.length > 1) segments.push(...parts)
   }
   const fallback = matchAugmentsFromOcrText(segments, augments, 4)
+  if (fallback.confidence < 0.8) {
+    return { matchedIds: [], slotMap: new Map(), rawLines, avgConf: 0 }
+  }
   const slotMap = new Map<AugmentOfferSlotIndex, string>()
   fallback.matchedIds.forEach((id, idx) => {
     slotMap.set(idx as AugmentOfferSlotIndex, id)

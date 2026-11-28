@@ -15,7 +15,6 @@ import type {
   ItemMeta,
   LocalMatchHistorySummary,
   OcrRecognizeResult,
-  PlaystyleMode,
   ShortcutStatusMap,
   TacticalAdvice,
   UserPreferences
@@ -72,7 +71,6 @@ export interface HexBuddyApi {
   setSimulator: (
     scene: 'off' | 'champ-select' | 'level-7-pick' | 'fountain-buy'
   ) => Promise<GameLiveState>
-  setPlaystyleMode: (mode: PlaystyleMode) => Promise<GameLiveState>
   setArchetype: (archetypeId: string | null) => Promise<GameLiveState>
   rerollSimSlot: (slotIndex: AugmentOfferSlotIndex) => Promise<GameLiveState>
   updateAugments: (payload: {
@@ -160,7 +158,6 @@ const api: HexBuddyApi = {
   switchDataset: (datasetPath, band) =>
     ipcRenderer.invoke('data:switch-dataset', datasetPath, band),
   setSimulator: (scene) => ipcRenderer.invoke('game:set-simulator', scene),
-  setPlaystyleMode: (mode) => ipcRenderer.invoke('game:set-playstyle', mode),
   setArchetype: (archetypeId) => ipcRenderer.invoke('game:set-archetype', archetypeId),
   rerollSimSlot: (slotIndex) => ipcRenderer.invoke('game:reroll-sim-slot', slotIndex),
   updateAugments: (payload) => ipcRenderer.invoke('game:update-augments', payload),

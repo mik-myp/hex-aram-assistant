@@ -19,6 +19,8 @@ import {
 let lastSeenMilestone = 0
 let lastMilestoneEnteredAt = 0
 let offerFirstShownAt = 0
+let pendingOpenOfferKey = ''
+let pendingUpdateOfferKey = ''
 
 function currentActiveMilestone(level: number): number {
   if (level >= 15) return 15
@@ -132,9 +134,13 @@ export async function tickSpatialVisionAndCursor(): Promise<void> {
 
       if (res.matchedAugmentIds.length >= 2) {
         runtime.emptyOfferScans = 0
-        const prevKey = runtime.gameState.cardSlots.map((c) => c.augmentId).join(',')
-        const nextKey = res.cardSlots.map((c) => c.augmentId).join(',')
-        if (prevKey !== nextKey) {
+        const prevKey = runtime.gameState.cardSlots.map((c) => `${c.slotIndex}:${c.augmentId}`).join(',')
+        const nextKey = res.cardSlots.map((c) => `${c.slotIndex}:${c.augmentId}`).join(',')
+        if (prevKey === nextKey) {
+          pendingUpdateOfferKey = ''
+        } else if (pendingUpdateOfferKey === nextKey) {
+          // Confirmed on 2 consecutive scans (genuine reroll, not 1-frame hover/shimmer flicker!)
+          pendingUpdateOfferKey = ''
           runtime.gameState = {
             ...runtime.gameState,
             candidateAugmentIds: res.matchedAugmentIds,
@@ -142,8 +148,11 @@ export async function tickSpatialVisionAndCursor(): Promise<void> {
           }
           showHudForCardsImmediately()
           broadcastGameState()
+        } else {
+          pendingUpdateOfferKey = nextKey
         }
       } else {
+        pendingUpdateOfferKey = ''
         // Fast dismiss: if strip visually mutated AND matched 0 cards after being visible >= 900ms, dismiss immediately;
         // otherwise confirm on 2nd miss (<0.9s total) so a single noisy frame doesn't flicker.
         runtime.emptyOfferScans++
@@ -166,6 +175,8 @@ export async function tickSpatialVisionAndCursor(): Promise<void> {
             runtime.resolvedMilestones.add(m)
           }
           runtime.emptyOfferScans = 0
+          pendingOpenOfferKey = ''
+          pendingUpdateOfferKey = ''
           runtime.gameState = {
             ...runtime.gameState,
             pickedAugmentIds: nextPicked,
@@ -214,20 +225,31 @@ export async function tickSpatialVisionAndCursor(): Promise<void> {
     )
     if (res.skippedUnchanged) return
 
-    if (res.matchedAugmentIds.length >= 2) {
-      logDiag(
-        'OCR',
-        `Auto-detected Lv${runtime.latestLive.currentLevel} (M${m}) cards: ${res.matchedAugmentIds.join(',')} (${res.elapsedMs}ms)`
-      )
-      runtime.emptyOfferScans = 0
-      offerFirstShownAt = Date.now()
-      runtime.gameState = {
-        ...runtime.gameState,
-        candidateAugmentIds: res.matchedAugmentIds,
-        cardSlots: res.cardSlots
+    if (res.matchedAugmentIds.length >= 2 && res.confidence >= 0.76) {
+      const nextKey = res.cardSlots.map((c) => `${c.slotIndex}:${c.augmentId}`).join(',')
+      const instantFullConfirm = res.matchedAugmentIds.length >= 3 && res.confidence >= 0.85
+      if (instantFullConfirm || pendingOpenOfferKey === nextKey) {
+        pendingOpenOfferKey = ''
+        pendingUpdateOfferKey = ''
+        logDiag(
+          'OCR',
+          `Auto-detected Lv${runtime.latestLive.currentLevel} (M${m}) cards: ${res.matchedAugmentIds.join(',')} (${res.elapsedMs}ms, conf=${res.confidence})`
+        )
+        runtime.emptyOfferScans = 0
+        offerFirstShownAt = Date.now()
+        runtime.gameState = {
+          ...runtime.gameState,
+          candidateAugmentIds: res.matchedAugmentIds,
+          cardSlots: res.cardSlots
+        }
+        showHudForCardsImmediately()
+        broadcastGameState()
+      } else {
+        // Hold partial/borderline 2-card hits until confirmed on a 2nd consecutive scan to stop combat false popups
+        pendingOpenOfferKey = nextKey
       }
-      showHudForCardsImmediately()
-      broadcastGameState()
+    } else {
+      pendingOpenOfferKey = ''
     }
   } finally {
     runtime.ocrBusy = false
@@ -253,6 +275,8 @@ export function recomputeRealGameState(): void {
       runtime.matchEnteredAt = Date.now()
       runtime.lastLiveMatchStats = null
       lastMilestoneEnteredAt = Date.now()
+      pendingOpenOfferKey = ''
+      pendingUpdateOfferKey = ''
       runtime.resolvedMilestones.clear()
       runtime.milestoneAttempts.clear()
       resetAutoOcrVisualCache()
@@ -316,13 +340,11 @@ export function recomputeRealGameState(): void {
     runtime.wasLiveInGame = false
     const enteredChampSelect = !runtime.wasInChampSelect
     if (enteredChampSelect) {
-      runtime.gameState = {
-        ...runtime.gameState,
-        playstyleMode: runtime.currentPrefs.defaultPlaystyle || 'steady'
-      }
       runtime.resolvedMilestones.clear()
       runtime.milestoneAttempts.clear()
       lastSeenMilestone = 0
+      pendingOpenOfferKey = ''
+      pendingUpdateOfferKey = ''
       resetAutoOcrVisualCache()
     }
     runtime.wasInChampSelect = true
@@ -358,7 +380,6 @@ export function recomputeRealGameState(): void {
       appendLocalMatchRecord({
         durationSec,
         heroId: runtime.gameState.myHeroId,
-        playstyleMode: runtime.gameState.playstyleMode,
         finalLevel: runtime.gameState.currentLevel,
         pickedAugmentIds: [...runtime.gameState.pickedAugmentIds],
         finalItemIds: [...runtime.gameState.currentItemIds],
@@ -373,6 +394,8 @@ export function recomputeRealGameState(): void {
     runtime.wasInChampSelect = false
     runtime.wasDeadInLive = false
     lastSeenMilestone = 0
+    pendingOpenOfferKey = ''
+    pendingUpdateOfferKey = ''
     resetAutoOcrVisualCache()
     runtime.gameState = {
       ...runtime.gameState,

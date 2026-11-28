@@ -4,7 +4,6 @@ import type {
   CacheStatsInfo,
   DatasetMetadata,
   HeroRole,
-  PlaystyleMode,
   UserPreferences
 } from '@shared/types'
 import { Button } from '@/components/ui/button'
@@ -36,14 +35,6 @@ const ROLE_OPTIONS: Array<{ key: HeroRole; label: string }> = [
   { key: 'tank', label: '坦克' },
   { key: 'assassin', label: '刺客' },
   { key: 'support', label: '辅助' }
-]
-
-const MINDSET_OPTIONS: Array<{ key: PlaystyleMode; label: string }> = [
-  { key: 'steady', label: '⚖️ 稳健上分' },
-  { key: 'counter', label: '🎯 针对大爹' },
-  { key: 'team', label: '🤝 团队补位' },
-  { key: 'yolo', label: '🔥 只顾独爽' },
-  { key: 'torment', label: '😈 不死折磨' }
 ]
 
 function formatBytesToMb(bytes: number): string {
@@ -99,40 +90,20 @@ export const StrategyDataSection: React.FC<StrategyDataSectionProps> = ({
       <div>
         <h1 className="text-base font-bold text-foreground">攻略偏好、分段口径与本地缓存</h1>
         <p className="text-xs text-muted-foreground mt-0.5">
-          定制你的开局默认出装心态、选人替补席常玩定位加权，以及统计数据分段与缓存空间。
+          定制选人替补席常玩定位加权、商店复制习惯，以及统计数据分段与缓存空间。
         </p>
       </div>
 
       <Card>
         <CardHeader>
           <div>
-            <CardTitle>个人打法心态与常玩英雄定位</CardTitle>
+            <CardTitle>选人偏好与商店快捷体验</CardTitle>
             <CardDescription>
-              每局进入选人界面时自动重置为你的默认初始心态，局内仍可随时临时切换。
+              局内出装与海克斯统一按综合全局最优自动推演，也支持在泉水面板按英雄一键切换流派路线。
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <span className="text-xs font-medium text-foreground">每局默认开局心态</span>
-            <ToggleGroup
-              className="flex-wrap"
-              value={[prefs.defaultPlaystyle]}
-              onValueChange={(vals) => {
-                const next = vals[0] as PlaystyleMode | undefined
-                if (next) onPatchPref({ defaultPlaystyle: next })
-              }}
-            >
-              {MINDSET_OPTIONS.map((m) => (
-                <ToggleGroupItem key={m.key} value={m.key}>
-                  {m.label}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-          </div>
-
-          <Separator />
-
           <div className="flex flex-col gap-2">
             <span className="text-xs font-medium text-foreground">
               选人替补席 · 我的常玩定位加权（多选，替补席出现时优先提分）

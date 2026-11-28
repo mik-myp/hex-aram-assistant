@@ -146,8 +146,8 @@ export function runIconMatchOnCardBand(
     bgra, bandW, bandH, bandOffsetX, bandOffsetY, gameW, gameH, 3, templates, augments, isBgra
   )
 
-  // Fast exit when all 3 standard slots matched cleanly with high confidence
-  if (pass3.confidentCount === 3 && pass3.avgScore >= 0.72) {
+  // Fast exit when all 3 standard slots matched cleanly with very high confidence
+  if (pass3.confidentCount === 3 && pass3.avgScore >= 0.82) {
     return { ...pass3, elapsedMs: Date.now() - start }
   }
 
@@ -167,19 +167,25 @@ export function runIconMatchOnCardBand(
 }
 
 /**
- * Fuses Icon Fingerprint channel + OCR channel per slot (0..totalSlots-1) across 2/3/4-card offers.
+ * Fuses OCR title channel + Icon Fingerprint channel per slot (0..totalSlots-1) across 2/3/4-card offers.
+ * Priority rule: Exact/strong OCR Chinese title text ALWAYS wins over icon guessing so hover-glow or
+ * card shimmer animations never cause A -> B -> A flickering. Non-confident icon hits are dropped to
+ * prevent mid-combat false-positive popups.
  */
 export function mergeIconAndOcrPasses(
   iconPass: IconBandMatchPass | null,
   ocrPass: ParsedOcrPass | null
 ): ParsedOcrPass {
-  const totalSlots: 2 | 3 | 4 =
-    iconPass?.totalSlots === 4 || ocrPass?.totalSlots === 4 ? 4 : 3
+  const ocrHasLayout = Boolean(ocrPass && ocrPass.matchedIds.length >= 2 && ocrPass.totalSlots)
+  const totalSlots: 2 | 3 | 4 = ocrHasLayout
+    ? ocrPass!.totalSlots!
+    : iconPass && iconPass.confidentCount >= 2
+      ? iconPass.totalSlots
+      : ocrPass?.totalSlots || 3
   const slotMap = new Map<AugmentOfferSlotIndex, string>()
   const usedIds = new Set<string>()
   let confSum = 0
 
-  // Only merge slots from a channel if its layout matches the winning totalSlots
   const iconMatchesLayout = iconPass && iconPass.totalSlots === totalSlots ? iconPass : null
   const ocrMatchesLayout =
     ocrPass && (!ocrPass.totalSlots || ocrPass.totalSlots === totalSlots) ? ocrPass : null
@@ -189,15 +195,12 @@ export function mergeIconAndOcrPasses(
     const iconHit = iconMatchesLayout?.slotMatches.get(col)
     const ocrId = ocrMatchesLayout?.slotMap.get(col)
 
-    if (iconHit && iconHit.confident && !usedIds.has(iconHit.augmentId)) {
-      slotMap.set(col, iconHit.augmentId)
-      usedIds.add(iconHit.augmentId)
-      confSum += ocrId === iconHit.augmentId ? Math.min(0.99, iconHit.score + 0.12) : iconHit.score
-    } else if (ocrId && !usedIds.has(ocrId)) {
+    if (ocrId && !usedIds.has(ocrId)) {
       slotMap.set(col, ocrId)
       usedIds.add(ocrId)
-      confSum += ocrMatchesLayout?.avgConf || 0.78
-    } else if (iconHit && !usedIds.has(iconHit.augmentId)) {
+      const baseOcrConf = ocrMatchesLayout?.avgConf || 0.84
+      confSum += iconHit?.augmentId === ocrId ? Math.min(0.99, baseOcrConf + 0.1) : baseOcrConf
+    } else if (iconHit && iconHit.confident && !usedIds.has(iconHit.augmentId)) {
       slotMap.set(col, iconHit.augmentId)
       usedIds.add(iconHit.augmentId)
       confSum += iconHit.score

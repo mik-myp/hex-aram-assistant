@@ -4,8 +4,7 @@ import type {
   AugmentMeta,
   HeroMeta,
   ItemMeta,
-  LocalMatchHistorySummary,
-  PlaystyleMode
+  LocalMatchHistorySummary
 } from '@shared/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,14 +17,6 @@ interface MatchHistoryViewProps {
   onJumpToHero: (heroId: string) => void
   onJumpToAugment: (augmentId: string) => void
   onNotify: (msg: string) => void
-}
-
-const MODE_LABELS: Record<PlaystyleMode, string> = {
-  steady: '⚖️ 稳健',
-  counter: '🎯 针对',
-  team: '🤝 团队',
-  yolo: '🔥 独爽',
-  torment: '😈 折磨'
 }
 
 function formatDuration(sec: number): string {
@@ -218,8 +209,6 @@ export const MatchHistoryView: React.FC<MatchHistoryViewProps> = ({
                                       </span>
                                     </>
                                   )}
-                                <span>·</span>
-                                <span>{MODE_LABELS[rec.playstyleMode] || rec.playstyleMode}</span>
                               </div>
                             </div>
                           </button>

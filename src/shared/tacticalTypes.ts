@@ -1,8 +1,7 @@
 import type {
   AugmentOfferSlotIndex,
   AugmentVerdict,
-  GameLiveState,
-  PlaystyleMode
+  GameLiveState
 } from './types'
 
 export interface ThreatRadar {
@@ -81,14 +80,11 @@ export interface DynamicBuildStep {
     | '重伤克制'
     | '打坦穿透'
     | '防秒抗性'
-    | '独爽核弹'
-    | '折磨恶心'
     | '团队补位'
   reason: string
 }
 
 export interface TacticalAdvice {
-  playstyleMode: PlaystyleMode
   headline: string
   threatRadar: ThreatRadar
   recommendedSpells?: string | null
@@ -112,7 +108,7 @@ export interface LocalMatchHistoryRecord {
   endedAt: string
   durationSec: number
   heroId: string
-  playstyleMode: PlaystyleMode
+  playstyleMode?: string
   finalLevel: number
   pickedAugmentIds: string[]
   finalItemIds: string[]

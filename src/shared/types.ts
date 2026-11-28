@@ -16,8 +16,6 @@ export type OcrEngineMode = 'auto' | 'tesseract'
 
 export type AiToneStyle = 'concise' | 'witty' | 'beginner'
 
-export type PlaystyleMode = 'steady' | 'counter' | 'team' | 'yolo' | 'torment'
-
 export type MainViewTab = 'heroes' | 'augments' | 'history' | 'settings'
 
 export type SettingsSectionId =
@@ -198,7 +196,6 @@ export interface UserPreferences {
   enableBenchBadges: boolean
   enableThreePickBadges: boolean
   enableFountainStrip: boolean
-  defaultPlaystyle: PlaystyleMode
   autoSyncDataOnBoot: boolean
   restoreClipboardAfterCopy: boolean
   ocrEngineMode: OcrEngineMode
@@ -258,7 +255,6 @@ export interface WindowBoundsRect {
 export interface GameLiveState {
   connectionMode: 'disconnected' | 'lcu-champ-select' | 'live-in-game' | 'simulator'
   simulatorScene?: 'champ-select' | 'level-7-pick' | 'fountain-buy'
-  playstyleMode: PlaystyleMode
   selectedArchetypeId?: string | null
   myHeroId: string | null
   allyHeroIds: string[]
@@ -311,7 +307,6 @@ export interface AiSettings {
   toneStyle: AiToneStyle
   shortcutOverlay: string
   shortcutOcr: string
-  shortcutCycleMindset: string
 }
 
 export interface ShortcutSlotStatus {
@@ -323,7 +318,6 @@ export interface ShortcutSlotStatus {
 export interface ShortcutStatusMap {
   overlay: ShortcutSlotStatus
   ocr: ShortcutSlotStatus
-  cycleMindset: ShortcutSlotStatus
 }
 
 export interface CacheStatsInfo {

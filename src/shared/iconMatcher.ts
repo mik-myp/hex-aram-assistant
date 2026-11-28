@@ -316,9 +316,9 @@ export function matchIconSlotFromBuffer(
     }
   }
 
-  if (!bestId || bestScore < 0.48) return null
+  if (!bestId || bestScore < 0.62) return null
   const margin = Math.max(0, bestScore - Math.max(0, secondScore))
-  const confident = bestScore >= 0.64 || (bestScore >= 0.56 && margin >= 0.07)
+  const confident = bestScore >= 0.78 || (bestScore >= 0.72 && margin >= 0.12)
 
   return {
     augmentId: bestId,

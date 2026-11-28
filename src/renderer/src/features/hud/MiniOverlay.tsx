@@ -37,8 +37,22 @@ export const MiniOverlay: React.FC = () => {
   const offsetX = prefs?.hudOffsetX ?? 0
   const offsetY = prefs?.hudOffsetY ?? 0
 
+  // Never auto-expand on mouse hover during live combat! Auto-show only when dead (unless collapsed) or explicitly toggled by click.
   const showShoppingDrawer =
-    enableFountainStrip && (Boolean(gameState.isDead && !hasThreePick) || session.hoveredBar)
+    enableFountainStrip &&
+    !isChampSelect &&
+    !hasThreePick &&
+    ((Boolean(gameState.isDead) && !session.fountainCollapsed) || session.manualDrawerOpen)
+
+  const handleToggleShoppingDrawer = (): void => {
+    if (showShoppingDrawer) {
+      session.setManualDrawerOpen(false)
+      if (gameState.isDead) session.setFountainCollapsed(true)
+    } else {
+      session.setFountainCollapsed(false)
+      session.setManualDrawerOpen(true)
+    }
+  }
 
   const activePreset =
     SIMULATOR_RESOLUTION_PRESETS.find((p) => p.id === session.simPresetId) || null
@@ -149,6 +163,7 @@ export const MiniOverlay: React.FC = () => {
           isChampSelect={isChampSelect}
           isSimulator={isSimulator}
           showShoppingDrawer={showShoppingDrawer}
+          onToggleShoppingDrawer={handleToggleShoppingDrawer}
           hoveredBar={session.hoveredBar}
           topBarCenterX={topBarCenterX}
           topBarTopPx={topBarTopPx}

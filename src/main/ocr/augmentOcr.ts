@@ -239,12 +239,9 @@ async function recognizeFromCardBandBgra(params: {
     true
   )
 
-  // Fast exit when all offered slots matched cleanly by icons (3/3 for 3-pick or 4/4 for 4-pick)
+  // Fast exit ONLY when every offered slot matched with ultra-high icon confidence (prevents combat false positives & shimmer flips)
   const expectedFull = iconPass.totalSlots
-  if (
-    iconPass.confidentCount >= expectedFull ||
-    (isAutoPoll && iconPass.confidentCount >= expectedFull - 1 && iconPass.avgScore >= 0.75)
-  ) {
+  if (iconPass.confidentCount >= expectedFull && iconPass.avgScore >= 0.84) {
     const fused = mergeIconAndOcrPasses(iconPass, null)
     return buildResultFromPass(fused, gameW, gameH, startMs, `${sourceTag}图标秒识`, visualChanged, isAutoPoll)
   }

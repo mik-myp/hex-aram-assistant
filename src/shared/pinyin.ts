@@ -88,12 +88,15 @@ export function matchAugmentsFromOcrText(
         let score = 0
         if (line === item.norm) {
           score = 1.0
-        } else if (line.includes(item.norm) && item.norm.length >= 2) {
+        } else if (
+          line.includes(item.norm) &&
+          (item.norm.length >= 3 || (item.norm.length === 2 && line.length <= 4))
+        ) {
           score = 0.94
         } else if (item.norm.includes(line) && line.length >= 3) {
           score = 0.86
-        } else {
-          // Sliding window over longer OCR line
+        } else if (item.norm.length >= 3) {
+          // Sliding window over longer OCR line (skip fuzzy matching for 2-char names to avoid combat text false positives)
           const winLen = item.norm.length
           const windows: string[] = []
           if (line.length <= winLen + 2) {
@@ -111,7 +114,7 @@ export function matchAugmentsFromOcrText(
             const biSim = charBigramSimilarity(w, item.norm)
             // Also check pinyin similarity for lookalike/homophone confusion
             let pySim = 0
-            if (editSim >= 0.45 || biSim >= 0.45) {
+            if (editSim >= 0.5 || biSim >= 0.5) {
               const wPy = toPinyinIndex(w).full
               if (wPy && item.py) {
                 const pyDist = levenshteinDistance(wPy, item.py)
@@ -123,7 +126,7 @@ export function matchAugmentsFromOcrText(
           }
         }
 
-        if (score >= 0.58) {
+        if (score >= 0.72) {
           const prev = candidateScores.get(item.id) ?? 0
           if (score > prev) candidateScores.set(item.id, score)
         }

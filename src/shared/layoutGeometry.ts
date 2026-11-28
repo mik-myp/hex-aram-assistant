@@ -234,10 +234,7 @@ export function fitAugmentColumnsToLayout(
   centersX: number[],
   gameW: number,
   gameH: number
-): { totalSlots: 3 | 4; slotIndices: AugmentOfferSlotIndex[] } {
-  if (centersX.length >= 4) {
-    return { totalSlots: 4, slotIndices: [0, 1, 2, 3].slice(0, centersX.length) as AugmentOfferSlotIndex[] }
-  }
+): { totalSlots: 3 | 4; slotIndices: AugmentOfferSlotIndex[]; residual: number } {
   const spacing = GAME_CARD_STEP_BY_H * Math.max(240, gameH)
   const offsets = centersX.map((cx) => (cx - gameW / 2) / spacing)
 
@@ -261,17 +258,25 @@ export function fitAugmentColumnsToLayout(
     return { cols, err: worst }
   }
 
-  const fit3 = fit([-1.0, 0.0, 1.0])
   const fit4 = fit([-1.5, -0.5, 0.5, 1.5])
+  if (centersX.length >= 4) {
+    const cols4 =
+      fit4.cols ?? ([0, 1, 2, 3].slice(0, centersX.length) as AugmentOfferSlotIndex[])
+    const err4 = Number.isFinite(fit4.err) ? fit4.err : 1
+    return { totalSlots: 4, slotIndices: cols4, residual: Math.round(err4 * spacing) }
+  }
+
+  const fit3 = fit([-1.0, 0.0, 1.0])
   if (fit4.cols && fit4.err < 0.25 && fit4.err < fit3.err) {
-    return { totalSlots: 4, slotIndices: fit4.cols }
+    return { totalSlots: 4, slotIndices: fit4.cols, residual: Math.round(fit4.err * spacing) }
   }
   if (fit3.cols) {
-    return { totalSlots: 3, slotIndices: fit3.cols }
+    return { totalSlots: 3, slotIndices: fit3.cols, residual: Math.round(fit3.err * spacing) }
   }
   return {
     totalSlots: 3,
-    slotIndices: centersX.map((_, idx) => Math.min(2, idx) as AugmentOfferSlotIndex)
+    slotIndices: centersX.map((_, idx) => Math.min(2, idx) as AugmentOfferSlotIndex),
+    residual: Math.round(spacing)
   }
 }
 

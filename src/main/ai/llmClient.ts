@@ -1,5 +1,5 @@
 import { buildHeroDetailGuide } from '../data/synergyEngine'
-import type { AiSettings, GameLiveState, PlaystyleMode, SeedBundle } from '@shared/types'
+import type { AiSettings, GameLiveState, SeedBundle } from '@shared/types'
 import { computeLocalTacticalAdvice } from './tacticalEngine'
 
 export async function testLlmConnection(
@@ -88,14 +88,6 @@ export async function askCustomLlmAdvisor(params: {
   const guide = buildHeroDetailGuide(bundle, heroId)
   if (!guide) return { ok: false, content: '未找到当前英雄统计数据。' }
 
-  const modeNameMap: Record<PlaystyleMode, string> = {
-    steady: '稳健上分',
-    counter: '针对敌方大爹',
-    team: '团队补位牺牲',
-    yolo: '只顾自己爽（极限输出整活）',
-    torment: '不死折磨恶心对面'
-  }
-
   const pickedNames = state.pickedAugmentIds
     .map((id) => bundle.augments[id]?.name)
     .filter(Boolean)
@@ -139,12 +131,12 @@ export async function askCustomLlmAdvisor(params: {
       '面向刚玩大乱斗的新手玩家，用通俗大白话解释原因（避免生僻黑话），在 110 字内分 3 条说明：1.海克斯与阵容/装备配合逻辑；2.下一件买什么及克制谁；3.站位与技能释放要点。'
   }
 
-  const systemPrompt = `你是英雄联盟海克斯大乱斗局内原位HUD军师。请务必综合我方阵容、已出装备、已拿海克斯、敌方阵容与出装、等级阶段以及玩家【心态模式】给出全局建议。${
+  const systemPrompt = `你是英雄联盟海克斯大乱斗局内原位HUD军师。请务必综合我方阵容、已出装备、已拿海克斯、敌方阵容与出装以及等级阶段给出全局最优建议。${
     tonePromptMap[settings.toneStyle || 'concise']
   }`
 
   const contextPrompt = [
-    `玩家英雄：${guide.hero.name}（心态模式：【${modeNameMap[state.playstyleMode]}】）`,
+    `玩家英雄：${guide.hero.name}`,
     `等级：${state.currentLevel}级，当前金币：${state.currentGold}`,
     `我方阵容：${allyNames || '未知'}${localAdvice.threatRadar.allyDamageWarning ? `（${localAdvice.threatRadar.allyDamageWarning}）` : ''}`,
     `我方已出装备：${myItemNames || '暂无成装'}`,

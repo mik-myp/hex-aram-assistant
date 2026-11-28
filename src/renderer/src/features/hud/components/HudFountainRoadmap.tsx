@@ -1,6 +1,7 @@
 import React from 'react'
-import { ArrowRight, Flame, Loader2, ShieldAlert, Sparkles } from 'lucide-react'
+import { ArrowRight, ChevronUp, Flame, Loader2, Plus, Search, ShieldAlert, Sparkles } from 'lucide-react'
 import type {
+  AugmentMeta,
   HeroMeta,
   HudDensityMode,
   ItemMeta,
@@ -14,7 +15,9 @@ interface HudFountainRoadmapProps {
   currentGold: number
   advice: TacticalAdvice
   heroes: Record<string, HeroMeta>
+  augments: Record<string, AugmentMeta>
   items: Record<string, ItemMeta>
+  pickedAugmentIds: string[]
   enemyCount: number
   opacityMode: OverlayOpacityMode
   densityMode: HudDensityMode
@@ -23,6 +26,12 @@ interface HudFountainRoadmapProps {
   setAiBriefBusy: (v: boolean) => void
   aiBrief: string | null
   setAiBrief: (v: string | null) => void
+  showAugPicker: boolean
+  setShowAugPicker: React.Dispatch<React.SetStateAction<boolean>>
+  augSearchQuery: string
+  setAugSearchQuery: (q: string) => void
+  augSearchResults: AugmentMeta[]
+  onCollapse: () => void
   onCopyShopItemName: (name: string) => void
 }
 
@@ -31,7 +40,9 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
   currentGold,
   advice,
   heroes,
+  augments,
   items,
+  pickedAugmentIds,
   enemyCount,
   opacityMode,
   densityMode,
@@ -40,6 +51,12 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
   setAiBriefBusy,
   aiBrief,
   setAiBrief,
+  showAugPicker,
+  setShowAugPicker,
+  augSearchQuery,
+  setAugSearchQuery,
+  augSearchResults,
+  onCollapse,
   onCopyShopItemName
 }) => {
   const nextStep = advice.immediateNextItem
@@ -116,23 +133,34 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
           ) : null}
         </div>
 
-        <button
-          onClick={async () => {
-            setAiBriefBusy(true)
-            const r = await window.hexbuddy.askLlmAdvisor(heroId, '__MINI_BRIEF__')
-            setAiBrief(r.content)
-            setAiBriefBusy(false)
-          }}
-          disabled={aiBriefBusy}
-          className="px-2.5 py-0.5 rounded-full bg-[#C8AA6E]/20 hover:bg-[#C8AA6E]/35 border border-[#C8AA6E]/45 text-[11px] text-[#E2C992] flex items-center gap-1 cursor-pointer shrink-0"
-        >
-          {aiBriefBusy ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
-          ) : (
-            <Sparkles className="w-3 h-3" />
-          )}
-          <span>AI 一句话锦囊</span>
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={async () => {
+              setAiBriefBusy(true)
+              const r = await window.hexbuddy.askLlmAdvisor(heroId, '__MINI_BRIEF__')
+              setAiBrief(r.content)
+              setAiBriefBusy(false)
+            }}
+            disabled={aiBriefBusy}
+            className="px-2.5 py-0.5 rounded-full bg-[#C8AA6E]/20 hover:bg-[#C8AA6E]/35 border border-[#C8AA6E]/45 text-[11px] text-[#E2C992] flex items-center gap-1 cursor-pointer shrink-0"
+          >
+            {aiBriefBusy ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Sparkles className="w-3 h-3" />
+            )}
+            <span>AI 锦囊</span>
+          </button>
+          <button
+            type="button"
+            onClick={onCollapse}
+            title="收起泉水面板（不影响观战）"
+            className="px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/18 border border-white/15 text-[11px] text-[#CBD5E1] hover:text-white flex items-center gap-0.5 cursor-pointer shrink-0"
+          >
+            <ChevronUp className="w-3 h-3" />
+            <span>收起</span>
+          </button>
+        </div>
       </div>
 
       {aiBrief && (
@@ -291,6 +319,85 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
           )}
         </div>
       )}
+
+      <div className="pt-1.5 border-t border-white/10 flex items-center justify-between gap-2 text-[10.5px] relative">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[#94A3B8] shrink-0">本局已拿海克斯（用于算组合/冲突）:</span>
+          {pickedAugmentIds.length === 0 && (
+            <span className="text-[#64748B]">选卡后自动记录</span>
+          )}
+          {pickedAugmentIds.map((aid) => {
+            const am = augments[aid]
+            if (!am) return null
+            return (
+              <button
+                key={aid}
+                type="button"
+                onClick={() =>
+                  window.hexbuddy.updateAugments({
+                    pickedAugmentIds: pickedAugmentIds.filter((x) => x !== aid)
+                  })
+                }
+                title={`点击移除：${am.name}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/45 border border-[#C8AA6E]/35 hover:border-rose-400 text-[#F0E6D2] cursor-pointer"
+              >
+                {am.iconUrl && <img src={am.iconUrl} alt="" className="w-3.5 h-3.5 rounded" />}
+                <span>{am.name}</span>
+              </button>
+            )
+          })}
+          {pickedAugmentIds.length < 6 && (
+            <button
+              type="button"
+              onClick={() => setShowAugPicker((v) => !v)}
+              title="若自动记录有偏差，点此手动补录（支持拼音）"
+              className="px-1.5 py-0.5 rounded bg-white/8 hover:bg-white/15 border border-dashed border-[#C8AA6E]/45 text-[#E2C992] inline-flex items-center gap-0.5 cursor-pointer"
+            >
+              <Plus className="w-3 h-3" />
+              <span>补录</span>
+            </button>
+          )}
+        </div>
+
+        {showAugPicker && (
+          <div className="absolute bottom-8 right-0 w-56 p-2 rounded-lg bg-[#09101D]/98 border border-[#C8AA6E]/55 shadow-2xl z-50 space-y-1.5 whitespace-normal">
+            <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#111C2E] border border-white/15">
+              <Search className="w-3 h-3 text-[#94A3B8]" />
+              <input
+                autoFocus
+                value={augSearchQuery}
+                onChange={(e) => setAugSearchQuery(e.target.value)}
+                placeholder="搜海克斯 / 拼音 (zghs)"
+                className="bg-transparent outline-none text-[11px] text-[#F0E6D2] w-full"
+              />
+            </div>
+            <div className="max-h-40 overflow-y-auto space-y-0.5">
+              {augSearchResults.map((am) => {
+                const already = pickedAugmentIds.includes(am.id)
+                return (
+                  <button
+                    key={am.id}
+                    type="button"
+                    disabled={already}
+                    onClick={() => {
+                      window.hexbuddy.updateAugments({
+                        pickedAugmentIds: [...pickedAugmentIds, am.id].slice(-6)
+                      })
+                      setShowAugPicker(false)
+                      setAugSearchQuery('')
+                    }}
+                    className="w-full px-1.5 py-1 rounded hover:bg-white/10 flex items-center gap-1.5 text-left text-[11px] text-[#F0E6D2] disabled:opacity-40 cursor-pointer"
+                  >
+                    {am.iconUrl && <img src={am.iconUrl} alt="" className="w-4 h-4 rounded" />}
+                    <span className="truncate flex-1">{am.name}</span>
+                    {already && <span className="text-[9px] text-[#0AC8B9]">已加</span>}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

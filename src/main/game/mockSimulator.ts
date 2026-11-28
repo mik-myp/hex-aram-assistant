@@ -1,5 +1,5 @@
 import { buildResolutionAwareCardSlots } from '@shared/layoutGeometry'
-import type { CardSlotAnchor, GameLiveState, PlaystyleMode, SeedBundle } from '@shared/types'
+import type { CardSlotAnchor, GameLiveState, SeedBundle } from '@shared/types'
 
 function findAugmentIdsByNames(bundle: SeedBundle, preferredNames: string[], count = 3): string[] {
   const all = Object.values(bundle.augments)
@@ -22,16 +22,14 @@ export function makeDefaultCardSlots(ids: string[], gameW = 1920, gameH = 1080):
 
 export function createSimulatorScene(
   scene: 'champ-select' | 'level-7-pick' | 'fountain-buy',
-  bundle: SeedBundle,
-  playstyleMode: PlaystyleMode = 'steady'
+  bundle: SeedBundle
 ): GameLiveState {
   if (scene === 'champ-select') {
     const bench = ['10', '223', '54', '222'].filter((id) => bundle.heroes[id])
     return {
       connectionMode: 'simulator',
       simulatorScene: 'champ-select',
-      playstyleMode,
-      myHeroId: bundle.heroes['54'] ? '54' : '1', // 墨菲特 Malphite (great to demo Team Tank vs YOLO AP Nuke!)
+      myHeroId: bundle.heroes['54'] ? '54' : '1',
       allyHeroIds: ['54', '101', '99', '103', '81'].filter((id) => bundle.heroes[id]),
       benchHeroIds: bench,
       enemyHeroIds: [],
@@ -66,7 +64,6 @@ export function createSimulatorScene(
     return {
       connectionMode: 'simulator',
       simulatorScene: 'level-7-pick',
-      playstyleMode,
       myHeroId: bundle.heroes['1'] ? '1' : Object.keys(bundle.heroes)[0],
       allyHeroIds: ['1', '103', '99', '81', '101'].filter((id) => bundle.heroes[id]),
       benchHeroIds: [],
@@ -84,13 +81,12 @@ export function createSimulatorScene(
     }
   }
 
-  // fountain-buy: Dead in base with 3350 gold, ready to buy items under different mindsets!
+  // fountain-buy: Dead in base with 3350 gold, ready to buy items and test archetype switching!
   const pickedTwo = findAugmentIdsByNames(bundle, ['珠光护手', '炼狱导管'], 2)
   return {
     connectionMode: 'simulator',
     simulatorScene: 'fountain-buy',
-    playstyleMode,
-    myHeroId: bundle.heroes['54'] ? '54' : '1', // 墨菲特: switch between 团队(心之钢肉) / 针对(反甲重伤) / 独爽(影焰帽子核弹) / 折磨(无终恨意冰杖)!
+    myHeroId: bundle.heroes['54'] ? '54' : '1',
     allyHeroIds: ['54', '103', '99', '81', '101'].filter((id) => bundle.heroes[id]),
     benchHeroIds: [],
     enemyHeroIds: enemyPlayers.map((e) => e.heroId),

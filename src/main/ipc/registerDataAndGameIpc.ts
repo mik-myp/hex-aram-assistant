@@ -1,6 +1,6 @@
 import { ipcMain, screen } from 'electron'
 import { sanitizeAiSettings } from '@shared/configSchema'
-import type { AiSettings, AugmentOfferSlotIndex, PlaystyleMode } from '@shared/types'
+import type { AiSettings, AugmentOfferSlotIndex } from '@shared/types'
 import { askCustomLlmAdvisor, testLlmConnection } from '../ai/llmClient'
 import { computeLocalTacticalAdvice } from '../ai/tacticalEngine'
 import {
@@ -132,21 +132,11 @@ export function registerDataAndGameplayIpc(): void {
           false
         )
       }
-      runtime.gameState = createSimulatorScene(
-        scene,
-        syncService.getBundle(),
-        runtime.gameState.playstyleMode
-      )
+      runtime.gameState = createSimulatorScene(scene, syncService.getBundle())
       broadcastGameState()
       return runtime.gameState
     }
   )
-
-  ipcMain.handle('game:set-playstyle', (_, mode: PlaystyleMode) => {
-    runtime.gameState = { ...runtime.gameState, playstyleMode: mode }
-    broadcastGameState()
-    return runtime.gameState
-  })
 
   ipcMain.handle('game:set-archetype', (_, archetypeId: string | null) => {
     runtime.gameState = {
