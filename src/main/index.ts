@@ -10,6 +10,10 @@ import { startLeagueWindowTracker, stopLeagueWindowTracker } from './game/window
 import { registerIpcHandlers } from './ipc/registerIpcHandlers'
 import { logDiag } from './logger/diagLogger'
 import { terminateOcrWorker } from './ocr/augmentOcr'
+import {
+  healMissingIconFingerprints,
+  initIconFingerprintStore
+} from './ocr/iconFingerprintStore'
 import { registerGlobalShortcuts } from './shortcuts/shortcutManager'
 import {
   isInActiveMatchOrChampSelect,
@@ -26,13 +30,26 @@ import {
   toggleSpatialHud
 } from './window/windowManager'
 
-// Trim Chromium Spare Renderer (~60 MB) & lazy V8 heap expansion before app initialization
+// Trim Chromium Spare Renderer (~60 MB) while keeping enough V8 headroom for seed bundle + OCR fallback
 app.commandLine.appendSwitch(
   'disable-features',
   'SpareRendererForSitePerProcess,BackForwardCache,CalculateNativeWinOcclusion'
 )
 app.commandLine.appendSwitch('renderer-process-limit', '2')
-app.commandLine.appendSwitch('js-flags', '--max-old-space-size=192')
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=384')
+
+// Prevent fatal crash dialogs on edge-case OS/driver/LCU transient errors
+process.on('uncaughtException', (err) => {
+  const msg = err instanceof Error ? err.stack || err.message : String(err)
+  logDiag('FATAL-GUARD', `uncaughtException: ${msg.slice(0, 500)}`)
+  console.error('[HexBuddy] Uncaught exception guarded:', err)
+})
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason instanceof Error ? reason.stack || reason.message : String(reason)
+  logDiag('FATAL-GUARD', `unhandledRejection: ${msg.slice(0, 500)}`)
+  console.error('[HexBuddy] Unhandled rejection guarded:', reason)
+})
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 if (!gotSingleInstanceLock) {
@@ -50,6 +67,7 @@ if (!gotSingleInstanceLock) {
 
     await loadSettingsAndPrefs()
     await syncService.init()
+    await initIconFingerprintStore()
     registerIpcHandlers()
     createSystemTray(() => {
       triggerManualHudOcr()
@@ -93,7 +111,10 @@ if (!gotSingleInstanceLock) {
     if (runtime.currentPrefs.autoSyncDataOnBoot !== false) {
       setTimeout(() => {
         if (!isInActiveMatchOrChampSelect()) {
-          syncService.checkAndSync(false).catch(() => {})
+          syncService
+            .checkAndSync(false)
+            .then(() => healMissingIconFingerprints(syncService.getBundle().augments))
+            .catch(() => {})
         }
       }, 1500)
     }

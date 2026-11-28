@@ -3,6 +3,7 @@ import { SimulatorBar } from './components/SimulatorBar'
 import { TierRadar } from './components/TierRadar'
 import { AugmentDex } from './components/AugmentDex'
 import { HeroGuide } from './components/HeroGuide'
+import { MatchHistoryView } from './components/MatchHistoryView'
 import { CommandPalette } from './components/CommandPalette'
 import { OnboardingBanner } from './components/OnboardingBanner'
 import { MiniOverlay } from './features/hud/MiniOverlay'
@@ -25,11 +26,8 @@ const MainWorkspace: React.FC = () => {
   const [commandOpen, setCommandOpen] = useState(false)
 
   useEffect(() => {
-    const scale = ws.prefs?.uiFontScale || 'comfortable'
-    document.documentElement.dataset.fontScale = scale
-    return () => {
-      delete document.documentElement.dataset.fontScale
-    }
+    document.documentElement.dataset.fontScale = ws.prefs?.uiFontScale || 'comfortable'
+    return () => { delete document.documentElement.dataset.fontScale }
   }, [ws.prefs?.uiFontScale])
 
   useEffect(() => {
@@ -64,6 +62,9 @@ const MainWorkspace: React.FC = () => {
     ? ws.prefs.favoriteHeroIds.includes(ws.selectedHeroId)
     : false
   const isMac = navigator.userAgent.includes('Mac')
+  const updatePrefs = async (patch: Partial<typeof ws.prefs>): Promise<void> => {
+    ws.setPrefs(await window.hexbuddy.savePrefs(patch))
+  }
 
   return (
     <div
@@ -115,10 +116,7 @@ const MainWorkspace: React.FC = () => {
           initialSection={settingsSection}
           onSwitchDataset={ws.handleSwitchDataset}
           onSyncNow={ws.handleSyncNow}
-          onUpdatePrefs={async (patch) => {
-            const updated = await window.hexbuddy.savePrefs(patch)
-            ws.setPrefs(updated)
-          }}
+          onUpdatePrefs={updatePrefs}
           onUpdateSettings={async (nextSettings) => {
             const updated = await window.hexbuddy.saveSettings(nextSettings)
             ws.setSettings(updated)
@@ -140,15 +138,24 @@ const MainWorkspace: React.FC = () => {
           onOpenSimPreview={() => handleLaunchSimDemo('level-7-pick')}
           onNotify={ws.showNotice}
         />
+      ) : mainView === 'history' ? (
+        <MatchHistoryView
+          heroes={ws.heroes}
+          augments={ws.augments}
+          items={ws.items}
+          onJumpToHero={(hid) => { ws.setSelectedHeroId(hid); setMainView('heroes') }}
+          onJumpToAugment={(aid) => { setDexFocusAugmentId(aid); setMainView('augments') }}
+          onNotify={ws.showNotice}
+        />
       ) : mainView === 'augments' ? (
         <AugmentDex
           augments={ws.augments}
           heroes={ws.heroes}
+          favoriteAugmentIds={ws.prefs.favoriteAugmentIds || []}
+          blacklistedAugmentIds={ws.prefs.blacklistedAugmentIds || []}
+          onUpdatePrefs={updatePrefs}
           initialAugmentId={dexFocusAugmentId}
-          onJumpToHero={(hid) => {
-            ws.setSelectedHeroId(hid)
-            setMainView('heroes')
-          }}
+          onJumpToHero={(hid) => { ws.setSelectedHeroId(hid); setMainView('heroes') }}
         />
       ) : (
         <div className="flex-1 flex min-h-0">

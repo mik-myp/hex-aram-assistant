@@ -48,6 +48,8 @@ export function logDiag(tag: string, message: string): void {
 export async function buildDiagnosticSummary(extra: {
   isSelfElevated: boolean
   leagueElevatedMismatch: boolean
+  exclusiveFullscreenSuspected?: boolean
+  localMatchesRecorded?: number
   connectionMode: GameLiveState['connectionMode']
   trackedWindowSummary: string
   ocrEngineSummary: string
@@ -85,6 +87,11 @@ export async function buildDiagnosticSummary(extra: {
     }`,
     `显示器: ${displays.join(', ') || '未知'}`,
     `连接状态: ${extra.connectionMode} | 追踪客户区: ${extra.trackedWindowSummary}`,
+    `显示模式提示: ${
+      extra.exclusiveFullscreenSuspected
+        ? '⚠️疑似独占全屏(局部抓屏黑屏，建议游戏改为无边框模式)'
+        : '正常(无边框/窗口化)'
+    } | 本地战绩记录: ${extra.localMatchesRecorded ?? 0} 局`,
     `OCR状态: ${extra.ocrEngineSummary}`,
     `数据集: ${extra.datasetSummary}`,
     `--- 最近运行日志 (最新 ${Math.min(12, tailLines.length)} 条) ---`,
@@ -95,6 +102,8 @@ export async function buildDiagnosticSummary(extra: {
     isWindows: process.platform === 'win32',
     isSelfElevated: extra.isSelfElevated,
     leagueElevatedMismatch: extra.leagueElevatedMismatch,
+    exclusiveFullscreenSuspected: Boolean(extra.exclusiveFullscreenSuspected),
+    localMatchesRecorded: extra.localMatchesRecorded ?? 0,
     connectionMode: extra.connectionMode,
     trackedWindowSummary: extra.trackedWindowSummary,
     ocrEngineSummary: extra.ocrEngineSummary,

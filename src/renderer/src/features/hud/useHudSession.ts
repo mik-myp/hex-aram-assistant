@@ -104,10 +104,42 @@ export function useHudSession() {
   }, [heroes])
 
   const heroId = gameState?.myHeroId || '1'
+  const tacticalFingerprint = gameState
+    ? [
+        heroId,
+        gameState.playstyleMode,
+        gameState.selectedArchetypeId || '',
+        gameState.currentLevel,
+        Math.floor((gameState.currentGold || 0) / 50),
+        gameState.allyHeroIds.join(','),
+        gameState.enemyHeroIds.join(','),
+        gameState.enemyPlayers
+          .map((e) => `${e.heroId}:${e.kills}/${e.deaths}:${e.itemIds.join('.')}`)
+          .join(';'),
+        gameState.pickedAugmentIds.join(','),
+        gameState.candidateAugmentIds.join(','),
+        gameState.currentItemIds.join(','),
+        (prefs?.favoriteAugmentIds || []).join(','),
+        (prefs?.blacklistedAugmentIds || []).join(',')
+      ].join('|')
+    : ''
+  const benchFingerprint = gameState
+    ? [
+        gameState.myHeroId || '',
+        gameState.allyHeroIds.join(','),
+        gameState.benchHeroIds.join(','),
+        (prefs?.favoriteHeroIds || []).join(','),
+        (prefs?.preferredRoles || []).join(',')
+      ].join('|')
+    : ''
+
+  useEffect(() => {
+    if (!tacticalFingerprint) return
+    window.hexbuddy.getTacticalAdvice(heroId).then(setAdvice)
+  }, [tacticalFingerprint, heroId])
 
   useEffect(() => {
     if (!gameState) return
-    window.hexbuddy.getTacticalAdvice(heroId).then(setAdvice)
     if (gameState.benchHeroIds.length > 0) {
       window.hexbuddy
         .getBenchSuggestions(gameState.myHeroId, gameState.allyHeroIds, gameState.benchHeroIds)
@@ -115,19 +147,8 @@ export function useHudSession() {
     } else {
       setBenchList([])
     }
-  }, [
-    heroId,
-    gameState?.playstyleMode,
-    gameState?.enemyHeroIds,
-    gameState?.allyHeroIds,
-    gameState?.benchHeroIds,
-    gameState?.pickedAugmentIds,
-    gameState?.candidateAugmentIds,
-    gameState?.currentItemIds,
-    gameState?.currentGold,
-    prefs?.favoriteHeroIds,
-    prefs?.preferredRoles
-  ])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [benchFingerprint])
 
   useEffect(() => {
     if (!showAugPicker) return

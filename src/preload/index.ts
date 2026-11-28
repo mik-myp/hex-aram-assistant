@@ -3,6 +3,7 @@ import type {
   AiSettings,
   AppUpdateState,
   AugmentMeta,
+  AugmentOfferSlotIndex,
   AugmentReverseDetail,
   BenchSuggestion,
   CacheStatsInfo,
@@ -12,6 +13,7 @@ import type {
   HeroDetailGuide,
   HeroMeta,
   ItemMeta,
+  LocalMatchHistorySummary,
   OcrRecognizeResult,
   PlaystyleMode,
   ShortcutStatusMap,
@@ -71,7 +73,8 @@ export interface HexBuddyApi {
     scene: 'off' | 'champ-select' | 'level-7-pick' | 'fountain-buy'
   ) => Promise<GameLiveState>
   setPlaystyleMode: (mode: PlaystyleMode) => Promise<GameLiveState>
-  rerollSimSlot: (slotIndex: 0 | 1 | 2) => Promise<GameLiveState>
+  setArchetype: (archetypeId: string | null) => Promise<GameLiveState>
+  rerollSimSlot: (slotIndex: AugmentOfferSlotIndex) => Promise<GameLiveState>
   updateAugments: (payload: {
     pickedAugmentIds?: string[]
     candidateAugmentIds?: string[]
@@ -124,6 +127,8 @@ export interface HexBuddyApi {
   getDiagnostics: () => Promise<DiagnosticSummary>
   openLogDir: () => Promise<void>
   relaunchAsAdmin: () => Promise<boolean>
+  getMatchHistorySummary: () => Promise<LocalMatchHistorySummary>
+  clearMatchHistory: () => Promise<LocalMatchHistorySummary>
   getUpdateState: () => Promise<AppUpdateState>
   checkForUpdates: () => Promise<AppUpdateState>
   downloadUpdate: () => Promise<AppUpdateState>
@@ -156,6 +161,7 @@ const api: HexBuddyApi = {
     ipcRenderer.invoke('data:switch-dataset', datasetPath, band),
   setSimulator: (scene) => ipcRenderer.invoke('game:set-simulator', scene),
   setPlaystyleMode: (mode) => ipcRenderer.invoke('game:set-playstyle', mode),
+  setArchetype: (archetypeId) => ipcRenderer.invoke('game:set-archetype', archetypeId),
   rerollSimSlot: (slotIndex) => ipcRenderer.invoke('game:reroll-sim-slot', slotIndex),
   updateAugments: (payload) => ipcRenderer.invoke('game:update-augments', payload),
   captureScreenOcr: () => ipcRenderer.invoke('ocr:capture-screen'),
@@ -185,6 +191,8 @@ const api: HexBuddyApi = {
   getDiagnostics: () => ipcRenderer.invoke('system:get-diagnostics'),
   openLogDir: () => ipcRenderer.invoke('system:open-log-dir'),
   relaunchAsAdmin: () => ipcRenderer.invoke('system:relaunch-admin'),
+  getMatchHistorySummary: () => ipcRenderer.invoke('history:get-summary'),
+  clearMatchHistory: () => ipcRenderer.invoke('history:clear'),
   getUpdateState: () => ipcRenderer.invoke('updater:get-state'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   downloadUpdate: () => ipcRenderer.invoke('updater:download'),

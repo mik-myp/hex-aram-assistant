@@ -15,19 +15,19 @@ export function resolveTopPillSurface(
   isHighlighted: boolean
 ): string {
   if (opacityMode === 'clear') {
-    return 'bg-black/42 backdrop-blur-[2px] border-white/25 opacity-95'
+    return 'bg-[#070B12]/66 border-white/25 opacity-95'
   }
   if (opacityMode === 'glass') {
-    return 'bg-[#09101D]/74 backdrop-blur-md border-[#C8AA6E]/45 opacity-95'
+    return 'bg-[#09101D]/84 border-[#C8AA6E]/45 opacity-95'
   }
   return isHighlighted
     ? 'bg-[#09101D]/95 border-[#C8AA6E]/55 opacity-100'
-    : 'bg-[#09101D]/62 border-white/15 opacity-80'
+    : 'bg-[#09101D]/68 border-white/15 opacity-82'
 }
 
 export function resolveFountainSurface(opacityMode: OverlayOpacityMode): string {
-  if (opacityMode === 'clear') return 'bg-black/48 backdrop-blur-[2px] border-[#C8AA6E]/35'
-  if (opacityMode === 'glass') return 'bg-[#09101D]/78 backdrop-blur-md border-[#C8AA6E]/45'
+  if (opacityMode === 'clear') return 'bg-[#070B12]/72 border-[#C8AA6E]/35'
+  if (opacityMode === 'glass') return 'bg-[#09101D]/86 border-[#C8AA6E]/45'
   return 'bg-[#09101D]/95 border-[#C8AA6E]/45'
 }
 
@@ -36,14 +36,14 @@ export function resolveBenchBadgeSurface(
   isHot: boolean
 ): string {
   if (opacityMode === 'clear') {
-    return isHot ? 'bg-black/48 border-[#0AC8B9]' : 'bg-black/42 border-white/20'
+    return isHot ? 'bg-[#071B26]/72 border-[#0AC8B9]' : 'bg-[#070B12]/66 border-white/20'
   }
   if (opacityMode === 'glass') {
     return isHot
-      ? 'bg-[#07202E]/78 backdrop-blur-sm border-[#0AC8B9]'
-      : 'bg-[#090F1A]/75 backdrop-blur-sm border-white/25'
+      ? 'bg-[#07202E]/86 border-[#0AC8B9]'
+      : 'bg-[#090F1A]/84 border-white/25'
   }
   return isHot
-    ? 'bg-[#07202E]/95 border-[#0AC8B9] shadow-[0_0_14px_rgba(10,200,185,0.3)]'
+    ? 'bg-[#07202E]/95 border-[#0AC8B9] shadow-[0_0_12px_rgba(10,200,185,0.28)]'
     : 'bg-[#090F1A]/94 border-white/25'
 }

@@ -5,7 +5,7 @@ import {
   CLIENT_BENCH_MAX_SLOTS,
   computeClientBenchSlotLayout,
   computeClientTeamSlotLayouts,
-  type computeGameAugmentCardBoxes
+  type GameAugmentCardBox
 } from '@shared/layoutGeometry'
 import type {
   AugmentMeta,
@@ -27,7 +27,7 @@ export const HudSimulatorUnderlay: React.FC<{
   showWireframe: boolean
   customScreenshot: CustomScreenshotState | null
   clientEffective: WindowBoundsRect
-  cardBoxes: ReturnType<typeof computeGameAugmentCardBoxes>
+  cardBoxes: GameAugmentCardBox[]
   gameState: GameLiveState
   heroes: Record<string, HeroMeta>
   augments: Record<string, AugmentMeta>
@@ -59,7 +59,7 @@ export const HudSimulatorUnderlay: React.FC<{
   const handleSimPickCard = (augId: string): void => {
     const nextPicked = gameState.pickedAugmentIds.includes(augId)
       ? gameState.pickedAugmentIds
-      : [...gameState.pickedAugmentIds, augId].slice(-4)
+      : [...gameState.pickedAugmentIds, augId].slice(-6)
     window.hexbuddy.updateAugments({
       pickedAugmentIds: nextPicked,
       candidateAugmentIds: []

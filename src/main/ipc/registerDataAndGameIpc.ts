@@ -1,8 +1,12 @@
 import { ipcMain, screen } from 'electron'
 import { sanitizeAiSettings } from '@shared/configSchema'
-import type { AiSettings, PlaystyleMode } from '@shared/types'
+import type { AiSettings, AugmentOfferSlotIndex, PlaystyleMode } from '@shared/types'
 import { askCustomLlmAdvisor, testLlmConnection } from '../ai/llmClient'
 import { computeLocalTacticalAdvice } from '../ai/tacticalEngine'
+import {
+  clearLocalMatchHistory,
+  getLocalMatchHistorySummary
+} from '../data/matchHistoryStore'
 import {
   buildAugmentReverseDetail,
   buildHeroDetailGuide,
@@ -14,6 +18,7 @@ import {
   captureScreenAndRecognizeAugments,
   recognizeAugmentsFromDataUrl
 } from '../ocr/augmentOcr'
+import { healMissingIconFingerprints } from '../ocr/iconFingerprintStore'
 import { broadcastGameState, runtime, syncService, updateService } from '../state/runtimeStore'
 import { toggleSpatialHud } from '../window/windowManager'
 
@@ -99,6 +104,7 @@ export function registerDataAndGameplayIpc(): void {
   ipcMain.handle('data:sync-now', async (_, force?: boolean) => {
     const res = await syncService.checkAndSync(Boolean(force))
     const b = syncService.getBundle()
+    healMissingIconFingerprints(b.augments).catch(() => {})
     return { ...res, heroes: b.heroes, augments: b.augments, items: b.items }
   })
 
@@ -142,7 +148,16 @@ export function registerDataAndGameplayIpc(): void {
     return runtime.gameState
   })
 
-  ipcMain.handle('game:reroll-sim-slot', (_, slotIndex: 0 | 1 | 2) => {
+  ipcMain.handle('game:set-archetype', (_, archetypeId: string | null) => {
+    runtime.gameState = {
+      ...runtime.gameState,
+      selectedArchetypeId: typeof archetypeId === 'string' && archetypeId.trim() ? archetypeId.trim() : null
+    }
+    broadcastGameState()
+    return runtime.gameState
+  })
+
+  ipcMain.handle('game:reroll-sim-slot', (_, slotIndex: AugmentOfferSlotIndex) => {
     const bundle = syncService.getBundle()
     const pool = Object.values(bundle.augments).filter(
       (a) => a.rarity === 'prismatic' && !runtime.gameState.candidateAugmentIds.includes(a.id)
@@ -173,14 +188,14 @@ export function registerDataAndGameplayIpc(): void {
     ) => {
       const nextCands =
         payload.candidateAugmentIds !== undefined
-          ? payload.candidateAugmentIds.slice(0, 3)
+          ? payload.candidateAugmentIds.slice(0, 4)
           : runtime.gameState.candidateAugmentIds
       const w = runtime.lastTrackedDipBounds?.width || 1920
       const h = runtime.lastTrackedDipBounds?.height || 1080
       runtime.gameState = {
         ...runtime.gameState,
         ...(payload.pickedAugmentIds !== undefined
-          ? { pickedAugmentIds: payload.pickedAugmentIds.slice(0, 4) }
+          ? { pickedAugmentIds: payload.pickedAugmentIds.slice(0, 6) }
           : {}),
         ...(payload.benchHeroIds !== undefined
           ? { benchHeroIds: payload.benchHeroIds.slice(0, 10) }
@@ -202,7 +217,8 @@ export function registerDataAndGameplayIpc(): void {
     const res = await captureScreenAndRecognizeAugments(
       bundle.augments,
       runtime.lastTrackedDipBounds,
-      runtime.currentPrefs.ocrEngineMode
+      runtime.currentPrefs.ocrEngineMode,
+      { mode: 'manual', trackedPhysicalBounds: runtime.lastTrackedPhysicalBounds }
     )
     if (res.matchedAugmentIds.length > 0) {
       runtime.gameState = {
@@ -234,7 +250,12 @@ export function registerDataAndGameplayIpc(): void {
   })
 
   ipcMain.handle('ai:get-tactical-advice', (_, selectedHeroId: string | null) =>
-    computeLocalTacticalAdvice(syncService.getBundle(), runtime.gameState, selectedHeroId)
+    computeLocalTacticalAdvice(
+      syncService.getBundle(),
+      runtime.gameState,
+      selectedHeroId,
+      runtime.currentPrefs
+    )
   )
 
   ipcMain.handle('ai:ask-llm', async (_, selectedHeroId: string | null, userQuestion?: string) =>
@@ -250,4 +271,7 @@ export function registerDataAndGameplayIpc(): void {
   ipcMain.handle('ai:test-connection', async (_, draftSettings: AiSettings) =>
     testLlmConnection(sanitizeAiSettings(draftSettings))
   )
+
+  ipcMain.handle('history:get-summary', () => getLocalMatchHistorySummary())
+  ipcMain.handle('history:clear', () => clearLocalMatchHistory())
 }

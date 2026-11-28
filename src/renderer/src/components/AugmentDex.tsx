@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Crown, Search, Sparkles } from 'lucide-react'
+import { AlertTriangle, Ban, Crown, Search, Sparkles, Star } from 'lucide-react'
 import { matchesSearchQuery } from '@shared/pinyin'
 import { RARITY_BADGE, RARITY_LABEL } from './HeroGuide'
 import { TIER_STYLE } from './TierRadar'
@@ -7,12 +7,16 @@ import type {
   AugmentMeta,
   AugmentRarity,
   AugmentReverseDetail,
-  HeroMeta
+  HeroMeta,
+  UserPreferences
 } from '@shared/types'
 
 interface AugmentDexProps {
   augments: Record<string, AugmentMeta>
   heroes: Record<string, HeroMeta>
+  favoriteAugmentIds: string[]
+  blacklistedAugmentIds: string[]
+  onUpdatePrefs: (patch: Partial<UserPreferences>) => Promise<void> | void
   initialAugmentId?: string | null
   onJumpToHero: (heroId: string) => void
 }
@@ -31,14 +35,36 @@ const TAG_FILTERS: Array<{ key: string; label: string }> = [
 export const AugmentDex: React.FC<AugmentDexProps> = ({
   augments,
   heroes,
+  favoriteAugmentIds,
+  blacklistedAugmentIds,
+  onUpdatePrefs,
   initialAugmentId,
   onJumpToHero
 }) => {
   const [rarity, setRarity] = useState<'all' | AugmentRarity>('all')
   const [tag, setTag] = useState<string>('all')
+  const [prefFilter, setPrefFilter] = useState<'all' | 'favorite' | 'blacklisted'>('all')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(initialAugmentId || null)
   const [detail, setDetail] = useState<AugmentReverseDetail | null>(null)
+  const favSet = useMemo(() => new Set(favoriteAugmentIds), [favoriteAugmentIds])
+  const banSet = useMemo(() => new Set(blacklistedAugmentIds), [blacklistedAugmentIds])
+
+  const toggleFavoriteAugment = (augId: string): void => {
+    const nextFav = favSet.has(augId)
+      ? favoriteAugmentIds.filter((id) => id !== augId)
+      : [...favoriteAugmentIds, augId]
+    const nextBan = blacklistedAugmentIds.filter((id) => id !== augId)
+    onUpdatePrefs({ favoriteAugmentIds: nextFav, blacklistedAugmentIds: nextBan })
+  }
+
+  const toggleBlacklistAugment = (augId: string): void => {
+    const nextBan = banSet.has(augId)
+      ? blacklistedAugmentIds.filter((id) => id !== augId)
+      : [...blacklistedAugmentIds, augId]
+    const nextFav = favoriteAugmentIds.filter((id) => id !== augId)
+    onUpdatePrefs({ favoriteAugmentIds: nextFav, blacklistedAugmentIds: nextBan })
+  }
 
   useEffect(() => {
     if (initialAugmentId) setSelectedId(initialAugmentId)
@@ -49,6 +75,8 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
     return Object.values(augments)
       .filter((a) => {
         if (rarity !== 'all' && a.rarity !== rarity) return false
+        if (prefFilter === 'favorite' && !favSet.has(a.id)) return false
+        if (prefFilter === 'blacklisted' && !banSet.has(a.id)) return false
         if (tag !== 'all' && !a.tags.includes(tag) && !(tag === 'heal' && a.tags.includes('shield'))) {
           return false
         }
@@ -60,7 +88,7 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
         })
       })
       .sort((a, b) => order[a.rarity] - order[b.rarity] || a.name.localeCompare(b.name, 'zh-CN'))
-  }, [augments, rarity, tag, query])
+  }, [augments, rarity, prefFilter, favSet, banSet, tag, query])
 
   useEffect(() => {
     if (!selectedId && filteredList.length > 0) {
@@ -125,6 +153,28 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
                 {tf.label}
               </button>
             ))}
+            <button
+              onClick={() => setPrefFilter((p) => (p === 'favorite' ? 'all' : 'favorite'))}
+              className={`px-2 py-0.5 rounded text-2xs cursor-pointer flex items-center gap-0.5 ${
+                prefFilter === 'favorite'
+                  ? 'bg-amber-400/20 text-amber-200 border border-amber-300/45 font-medium'
+                  : 'bg-[#121C2D] text-muted-foreground hover:text-amber-200'
+              }`}
+            >
+              <Star className="w-2.5 h-2.5" />
+              心愿({favoriteAugmentIds.length})
+            </button>
+            <button
+              onClick={() => setPrefFilter((p) => (p === 'blacklisted' ? 'all' : 'blacklisted'))}
+              className={`px-2 py-0.5 rounded text-2xs cursor-pointer flex items-center gap-0.5 ${
+                prefFilter === 'blacklisted'
+                  ? 'bg-rose-500/20 text-rose-200 border border-rose-400/45 font-medium'
+                  : 'bg-[#121C2D] text-muted-foreground hover:text-rose-200'
+              }`}
+            >
+              <Ban className="w-2.5 h-2.5" />
+              避坑({blacklistedAugmentIds.length})
+            </button>
           </div>
         </div>
 
@@ -160,6 +210,10 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
                     <span className={`text-2xs px-1.5 rounded border ${RARITY_BADGE[aug.rarity]}`}>
                       {RARITY_LABEL[aug.rarity]}
                     </span>
+                    {favSet.has(aug.id) && (
+                      <Star className="w-3 h-3 text-amber-300 fill-amber-300 shrink-0" />
+                    )}
+                    {banSet.has(aug.id) && <Ban className="w-3 h-3 text-rose-400 shrink-0" />}
                   </div>
                   <p className="text-2xs text-muted-foreground truncate mt-0.5">{aug.desc}</p>
                 </div>
@@ -203,6 +257,30 @@ export const AugmentDex: React.FC<AugmentDexProps> = ({
                     >
                       {RARITY_LABEL[detail.augment.rarity]}阶强化
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleFavoriteAugment(detail.augment.id)}
+                      className={`px-2 py-0.5 rounded border text-xs flex items-center gap-1 cursor-pointer transition ${
+                        favSet.has(detail.augment.id)
+                          ? 'bg-amber-400/25 border-amber-300 text-amber-100 font-semibold'
+                          : 'bg-black/35 border-white/15 text-[#cbd5e1] hover:border-amber-300/60'
+                      }`}
+                    >
+                      <Star className={`w-3 h-3 ${favSet.has(detail.augment.id) ? 'fill-amber-300' : ''}`} />
+                      {favSet.has(detail.augment.id) ? '已加入心愿单' : '设为心愿卡'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleBlacklistAugment(detail.augment.id)}
+                      className={`px-2 py-0.5 rounded border text-xs flex items-center gap-1 cursor-pointer transition ${
+                        banSet.has(detail.augment.id)
+                          ? 'bg-rose-500/25 border-rose-400 text-rose-100 font-semibold'
+                          : 'bg-black/35 border-white/15 text-[#cbd5e1] hover:border-rose-400/60'
+                      }`}
+                    >
+                      <Ban className="w-3 h-3" />
+                      {banSet.has(detail.augment.id) ? '已标记避坑' : '个人避坑'}
+                    </button>
                   </div>
                   <p className="text-sm text-[#e6edf6] leading-relaxed">{detail.augment.desc}</p>
                 </div>

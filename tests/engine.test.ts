@@ -2,13 +2,28 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  buildResolutionAwareCardSlots,
   CLIENT_BENCH_MAX_SLOTS,
   computeClientBenchSlotLayout,
   computeGameAugmentCardBoxes,
+  computeGameAugmentCardBoxesForCount,
+  computeOcrCardBandCropRect,
   computeOcrTitleStripCropRect,
+  fitAugmentColumnsToLayout,
+  GAME_CARD_STEP_BY_H,
   resolveClientEffectiveRect,
   resolveHoveredAugmentSlot
 } from '../src/shared/layoutGeometry'
+import {
+  compileIconTemplate,
+  decodeFingerprintBytesBase64,
+  ICON_FP_SIZE,
+  matchIconSlotFromBuffer,
+  type SerializedIconFingerprintMap
+} from '../src/shared/iconMatcher'
+import { mergeIconAndOcrPasses } from '../src/main/ocr/iconFusionPass'
+import { hasVisualFrameChanged } from '../src/main/ocr/tesseractOcrAdapter'
+import { matchWordsAdaptiveColumns } from '../src/main/ocr/winrtOcrAdapter'
 import { matchAugmentsFromOcrText, toPinyinIndex } from '../src/shared/pinyin'
 import {
   buildAugmentReverseDetail,
@@ -18,6 +33,8 @@ import {
   smoothWinRate
 } from '../src/main/data/synergyEngine'
 import { computeLocalTacticalAdvice } from '../src/main/ai/tacticalEngine'
+import { summarizeMatchHistoryRecords } from '../src/main/data/matchHistoryStore'
+import { normalizeIntegerBounds } from '../src/main/window/windowManager'
 import { buildDiagnosticSummary, logDiag } from '../src/main/logger/diagLogger'
 import {
   compareSemver,
@@ -468,5 +485,517 @@ describe('HexBuddy v0.3.0 Spatial HUD & 5-Mindset Engine', () => {
     expect(parsed.sections.some((s) => s.tone === 'added')).toBe(true)
     expect(parsed.sections.some((s) => s.tone === 'improved')).toBe(true)
     expect(parsed.sections.some((s) => s.tone === 'fixed')).toBe(true)
+  })
+
+  it('normalizes fractional DPI bounds safely and rejects degenerate rects', () => {
+    expect(
+      normalizeIntegerBounds({ x: 10.6, y: 20.4, width: 1066.6667, height: 600.25 })
+    ).toEqual({ x: 11, y: 20, width: 1067, height: 600 })
+    expect(normalizeIntegerBounds({ x: 0, y: 0, width: 100, height: 100 })).toBeNull()
+    expect(normalizeIntegerBounds({ x: Number.NaN, y: 0, width: 1280, height: 720 })).toBeNull()
+  })
+
+  it('adapts steady-mode recommendations globally to purchased AP items, enemy dive/tanks, and post-swap bench comp', () => {
+    const bundle = createMockBundle()
+    // AP Malphite already bought Malignance ('3118') -> steady mode recognizes AP build trajectory & recommends AP follow-up ('4645') and favors burn/haste over tank!
+    const apMalphiteState: GameLiveState = {
+      connectionMode: 'live-in-game',
+      playstyleMode: 'steady',
+      myHeroId: '54',
+      allyHeroIds: ['54', '36', '10', '238'],
+      benchHeroIds: [],
+      enemyHeroIds: ['36', '36', '238'],
+      enemyPlayers: [
+        { heroId: '36', kills: 4, deaths: 2, assists: 5, itemIds: ['3084'], isFedBoss: false },
+        { heroId: '36', kills: 3, deaths: 3, assists: 4, itemIds: ['2502'], isFedBoss: false },
+        { heroId: '238', kills: 9, deaths: 2, assists: 1, itemIds: [], isFedBoss: true }
+      ],
+      currentLevel: 11,
+      currentGold: 3300,
+      isDead: true,
+      isAugmentMilestone: true,
+      currentItemIds: ['3118'],
+      pickedAugmentIds: ['1003'],
+      candidateAugmentIds: ['1003', '1006'], // 炼狱导管 vs 玻璃大炮 against tanks + fed assassin
+      cardSlots: [],
+      lastUpdatedAt: Date.now()
+    }
+
+    const steadyAdvice = computeLocalTacticalAdvice(bundle, apMalphiteState, '54')
+    expect(steadyAdvice.dynamicBuildPlan[0].itemId).toBe('4645')
+    const winner = steadyAdvice.situationalCandidates.find((c) => c.isRecommendedPick)
+    expect(winner?.augmentId).toBe('1003')
+    const fragile = steadyAdvice.situationalCandidates.find((c) => c.augmentId === '1006')
+    expect(fragile?.situationalBonus).toBeLessThan(0)
+
+    // Post-swap bench check: when Malphite ('54') is the team's SOLE tank, swapping to non-tank warns "换后无前排"
+    const benchWhenSoleTank = computeBenchSuggestions(
+      bundle,
+      '54',
+      ['54', '10', '238', '10', '238'],
+      ['10', '36']
+    )
+    expect(benchWhenSoleTank[0].reason).toContain('换后无前排')
+    expect(benchWhenSoleTank[1].reason).toContain('换后补前排')
+  })
+
+  it('matches all 237 real offline augment icon fingerprints under rarity tint & micro-shift and fuses with OCR', () => {
+    const fpPath = resolve(__dirname, '../resources/seed-data/augment-icon-fingerprints.json')
+    const fpFile = JSON.parse(readFileSync(fpPath, 'utf-8')) as SerializedIconFingerprintMap
+    const seedPath = resolve(__dirname, '../resources/seed-data/seed-bundle.json')
+    const realBundle = JSON.parse(readFileSync(seedPath, 'utf-8')) as SeedBundle
+
+    const templates = Object.entries(fpFile.entries)
+      .map(([id, b64]) =>
+        compileIconTemplate(id, decodeFingerprintBytesBase64(b64), realBundle.augments[id]?.rarity)
+      )
+      .filter((t): t is NonNullable<typeof t> => t !== null)
+    expect(templates.length).toBeGreaterThanOrEqual(230)
+
+    // Render 3 real augment icons onto a simulated 1920x1080 card band with different tints (Gold/Prismatic/Silver) & slight pixel jitter
+    const gameW = 1920
+    const gameH = 1080
+    const band = computeOcrCardBandCropRect(gameW, gameH)
+    const boxes = computeGameAugmentCardBoxes(gameW, gameH)
+    // Verify card band encloses all 3 icon rects & title bands without touching HUD badges
+    expect(band.y).toBeLessThanOrEqual(boxes[0].iconRect.y)
+    expect(band.y + band.height).toBeGreaterThanOrEqual(
+      boxes[0].titleBand.y + boxes[0].titleBand.height
+    )
+    expect(boxes[0].badgeTopModeBottomY).toBeLessThan(band.y - 20)
+
+    const bgra = new Uint8Array(band.width * band.height * 4)
+    // Fill dark textured card background
+    for (let y = 0; y < band.height; y++) {
+      for (let x = 0; x < band.width; x++) {
+        const i = (y * band.width + x) * 4
+        bgra[i] = 28 + ((x + y) % 9)
+        bgra[i + 1] = 22 + (y % 7)
+        bgra[i + 2] = 18 + (x % 5)
+        bgra[i + 3] = 255
+      }
+    }
+
+    const targets: Array<{
+      slot: 0 | 1 | 2
+      id: string
+      tint: [number, number, number]
+      dx: number
+      dy: number
+    }> = [
+      { slot: 0, id: '1001', tint: [0.95, 0.78, 0.42], dx: 2, dy: -2 }, // Gold tint
+      { slot: 1, id: '1004', tint: [0.85, 0.65, 1.0], dx: -2, dy: 2 }, // Prismatic tint
+      { slot: 2, id: '1006', tint: [0.82, 0.88, 0.96], dx: 1, dy: 1 } // Silver tint
+    ]
+
+    for (const t of targets) {
+      const fpBytes = decodeFingerprintBytesBase64(fpFile.entries[t.id])
+      const rect = boxes[t.slot].iconRect
+      const localX = rect.x - band.x + t.dx
+      const localY = rect.y - band.y + t.dy
+      for (let py = 0; py < rect.height; py++) {
+        const gy = Math.min(ICON_FP_SIZE - 1, Math.floor((py / rect.height) * ICON_FP_SIZE))
+        for (let px = 0; px < rect.width; px++) {
+          const gx = Math.min(ICON_FP_SIZE - 1, Math.floor((px / rect.width) * ICON_FP_SIZE))
+          const val = fpBytes[gy * ICON_FP_SIZE + gx]
+          const dstX = localX + px
+          const dstY = localY + py
+          if (dstX < 0 || dstY < 0 || dstX >= band.width || dstY >= band.height) continue
+          const idx = (dstY * band.width + dstX) * 4
+          const alpha = val / 255
+          // BGRA order
+          bgra[idx] = Math.min(255, Math.round(bgra[idx] * (1 - alpha) + 255 * t.tint[2] * alpha))
+          bgra[idx + 1] = Math.min(
+            255,
+            Math.round(bgra[idx + 1] * (1 - alpha) + 255 * t.tint[1] * alpha)
+          )
+          bgra[idx + 2] = Math.min(
+            255,
+            Math.round(bgra[idx + 2] * (1 - alpha) + 255 * t.tint[0] * alpha)
+          )
+        }
+      }
+    }
+
+    const start = Date.now()
+    for (const t of targets) {
+      const rect = boxes[t.slot].iconRect
+      const hit = matchIconSlotFromBuffer(
+        bgra,
+        band.width,
+        band.height,
+        { x: rect.x - band.x, y: rect.y - band.y, width: rect.width, height: rect.height },
+        templates,
+        true
+      )
+      expect(hit?.augmentId).toBe(t.id)
+      expect(hit?.confident).toBe(true)
+    }
+    expect(Date.now() - start).toBeLessThan(150)
+
+    // Verify dual-channel fusion merges 2 confident icons + 1 OCR slot cleanly
+    const fused = mergeIconAndOcrPasses(
+      {
+        slotMatches: new Map([
+          [0, { augmentId: '1001', score: 0.91, margin: 0.3, confident: true }],
+          [2, { augmentId: '1006', score: 0.88, margin: 0.25, confident: true }]
+        ]),
+        totalSlots: 3,
+        confidentCount: 2,
+        matchedIds: ['1001', '1006'],
+        avgScore: 0.895,
+        elapsedMs: 3
+      },
+      {
+        matchedIds: ['1001', '1004'],
+        slotMap: new Map([
+          [0, '1001'],
+          [1, '1004']
+        ]),
+        rawLines: ['泰坦的坚决', '回归基本功'],
+        avgConf: 0.92
+      }
+    )
+    expect(fused.matchedIds).toEqual(['1001', '1004', '1006'])
+    expect(fused.slotMap.get(1)).toBe('1004')
+  })
+
+  it('detects golden augment combos, melee/scope conflicts, sample confidence, and stat anvil focus', () => {
+    const seedPath = resolve(__dirname, '../resources/seed-data/seed-bundle.json')
+    const realBundle = JSON.parse(readFileSync(seedPath, 'utf-8')) as SeedBundle
+
+    // 1. Already picked 炼狱导管 (1045), offered 尤里卡 (1030) vs 大力 (1007) -> triggers golden combo 炼狱无限火链!
+    const comboState: GameLiveState = {
+      connectionMode: 'live-in-game',
+      playstyleMode: 'steady',
+      myHeroId: '1', // Annie (AP)
+      allyHeroIds: ['1', '54', '10', '238', '36'],
+      benchHeroIds: [],
+      enemyHeroIds: ['36', '54', '238'],
+      enemyPlayers: [
+        { heroId: '36', kills: 3, deaths: 2, assists: 4, itemIds: ['3065'], isFedBoss: false },
+        { heroId: '54', kills: 2, deaths: 3, assists: 6, itemIds: ['2504'], isFedBoss: false },
+        { heroId: '238', kills: 4, deaths: 3, assists: 2, itemIds: [], isFedBoss: false }
+      ],
+      currentLevel: 7,
+      currentGold: 2200,
+      isDead: true,
+      isAugmentMilestone: true,
+      currentItemIds: ['6653'],
+      pickedAugmentIds: ['1045'], // 炼狱导管
+      candidateAugmentIds: ['1030', '1007'], // 尤里卡 vs 大力
+      cardSlots: [],
+      lastUpdatedAt: Date.now()
+    }
+
+    const advice = computeLocalTacticalAdvice(realBundle, comboState, '1')
+    const eureka = advice.situationalCandidates.find((c) => c.augmentId === '1030')
+    expect(eureka?.comboName).toBe('炼狱无限火链')
+    expect(eureka?.isRecommendedPick).toBe(true)
+    expect(eureka?.confidenceLevel).toBeDefined()
+    expect(eureka?.sampleGames).toBeGreaterThan(0)
+    // Enemy stacked 2 MR items ('3065', '2504') -> AP Stat Anvil prioritizes 法术穿透!
+    expect(advice.anvilFocus?.primary).toContain('法术穿透')
+
+    // 2. Hard conflict: 亮出你的剑 (1134) vs 最万用的瞄准镜 (1115)
+    const conflictAdvice = computeLocalTacticalAdvice(
+      realBundle,
+      {
+        ...comboState,
+        pickedAugmentIds: ['1134'],
+        candidateAugmentIds: ['1115', '1030']
+      },
+      '10'
+    )
+    const scope = conflictAdvice.situationalCandidates.find((c) => c.augmentId === '1115')
+    expect(scope?.hasConflict).toBe(true)
+    expect(scope?.verdict).toBe('TRAP')
+
+    // 3. excludeHudFromCapture defaults true and honors explicit false
+    expect(sanitizeUserPreferences({}).excludeHudFromCapture).toBe(true)
+    expect(sanitizeUserPreferences({ excludeHudFromCapture: false }).excludeHudFromCapture).toBe(false)
+  })
+
+  it('aggregates local match history top heroes/augments with W/L stats and flags suspected exclusive fullscreen in diagnostics', async () => {
+    const summary = summarizeMatchHistoryRecords([
+      {
+        id: '1',
+        endedAt: '2026-11-28T10:00:00Z',
+        durationSec: 840,
+        heroId: '1',
+        playstyleMode: 'steady',
+        finalLevel: 15,
+        pickedAugmentIds: ['1045', '1030'],
+        finalItemIds: ['6653', '2503'],
+        kills: 14,
+        deaths: 5,
+        assists: 19,
+        result: 'win'
+      },
+      {
+        id: '2',
+        endedAt: '2026-11-28T10:30:00Z',
+        durationSec: 720,
+        heroId: '1',
+        playstyleMode: 'yolo',
+        finalLevel: 14,
+        pickedAugmentIds: ['1045', '1048'],
+        finalItemIds: ['3118'],
+        kills: 8,
+        deaths: 9,
+        assists: 11,
+        result: 'loss'
+      },
+      {
+        id: '3',
+        endedAt: '2026-11-28T11:00:00Z',
+        durationSec: 650,
+        heroId: '54',
+        playstyleMode: 'team',
+        finalLevel: 12,
+        pickedAugmentIds: ['1041'],
+        finalItemIds: ['3084']
+      }
+    ])
+
+    expect(summary.totalMatches).toBe(3)
+    expect(summary.wins).toBe(1)
+    expect(summary.losses).toBe(1)
+    expect(summary.decidedMatches).toBe(2)
+    expect(summary.topHeroes[0]).toEqual({ heroId: '1', count: 2, wins: 1, decided: 2 })
+    expect(summary.topAugments[0]).toEqual({ augmentId: '1045', count: 2, wins: 1, decided: 2 })
+
+    const diag = await buildDiagnosticSummary({
+      isSelfElevated: false,
+      leagueElevatedMismatch: false,
+      exclusiveFullscreenSuspected: true,
+      localMatchesRecorded: 3,
+      connectionMode: 'live-in-game',
+      trackedWindowSummary: 'game 1920x1080 @(0,0)',
+      ocrEngineSummary: 'GDI局部抓屏 + 图标指纹(237张)',
+      datasetSummary: '16.23'
+    })
+    expect(diag.exclusiveFullscreenSuspected).toBe(true)
+    expect(diag.localMatchesRecorded).toBe(3)
+    expect(diag.formattedReport).toContain('疑似独占全屏')
+  })
+
+  it('supports 4-pick Hextech augment offers (geometry, adaptive 4-col OCR, hover tracking, and 4-card scoring)', () => {
+    const seedPath = resolve(__dirname, '../resources/seed-data/seed-bundle.json')
+    const realBundle = JSON.parse(readFileSync(seedPath, 'utf-8')) as SeedBundle
+
+    // 1. Verify 4-card boxes never overlap horizontally on 1080p and 21:9, and are enclosed inside the widened OCR band
+    for (const [w, h] of [
+      [1920, 1080],
+      [3440, 1440]
+    ] as const) {
+      const boxes4 = computeGameAugmentCardBoxesForCount(w, h, 4)
+      expect(boxes4.length).toBe(4)
+      const band = computeOcrCardBandCropRect(w, h)
+      expect(band.x).toBeLessThanOrEqual(boxes4[0].titleBand.x)
+      expect(band.x + band.width).toBeGreaterThanOrEqual(
+        boxes4[3].titleBand.x + boxes4[3].titleBand.width
+      )
+      for (let i = 0; i < 3; i++) {
+        const rightEdge = boxes4[i].centerX + boxes4[i].badgeWidth / 2
+        const nextLeft = boxes4[i + 1].centerX - boxes4[i + 1].badgeWidth / 2
+        expect(rightEdge).toBeLessThan(nextLeft)
+      }
+      expect(resolveHoveredAugmentSlot(boxes4[3].centerX, h * 0.5, w, h, 4)).toBe(3)
+    }
+
+    // 2. Real half-card shift test: even if only 3 out of 4 cards are detected at [-1.5, -0.5, +1.5]*spacing,
+    // fitAugmentColumnsToLayout distinguishes 4-pick and maps them to slots [0, 1, 3]!
+    const spacing1080 = GAME_CARD_STEP_BY_H * 1080
+    const partial4 = fitAugmentColumnsToLayout(
+      [960 - 1.5 * spacing1080, 960 - 0.5 * spacing1080, 960 + 1.5 * spacing1080],
+      1920,
+      1080
+    )
+    expect(partial4.totalSlots).toBe(4)
+    expect(partial4.slotIndices).toEqual([0, 1, 3])
+
+    // 3. Adaptive OCR column matcher with real 1080p strip coordinates detects all 4 cards accurately
+    const titleStrip = computeOcrTitleStripCropRect(1920, 1080)
+    const boxes4_1080 = computeGameAugmentCardBoxesForCount(1920, 1080, 4)
+    const ocr4 = matchWordsAdaptiveColumns(
+      [
+        { t: '珠光护手', x0: boxes4_1080[0].centerX - titleStrip.x - 60, x1: boxes4_1080[0].centerX - titleStrip.x + 60 },
+        { t: '炼狱导管', x0: boxes4_1080[1].centerX - titleStrip.x - 60, x1: boxes4_1080[1].centerX - titleStrip.x + 60 },
+        { t: '尤里卡', x0: boxes4_1080[2].centerX - titleStrip.x - 50, x1: boxes4_1080[2].centerX - titleStrip.x + 50 },
+        { t: '歌利亚巨人', x0: boxes4_1080[3].centerX - titleStrip.x - 70, x1: boxes4_1080[3].centerX - titleStrip.x + 70 }
+      ],
+      titleStrip.width,
+      ['珠光护手 炼狱导管 尤里卡 歌利亚巨人'],
+      realBundle.augments,
+      { stripOriginX: titleStrip.x, stripScale: 1, gameW: 1920, gameH: 1080 }
+    )
+    expect(ocr4.totalSlots).toBe(4)
+    expect(ocr4.matchedIds.length).toBe(4)
+    expect(ocr4.slotMap.get(3)).toBe('1041')
+
+    // 4. Single-card reroll frame change gate catches local pixel jump (>24) even when whole-strip mean barely moves
+    const prevSig = new Uint8Array(144).fill(50)
+    const rerollSig = new Uint8Array(prevSig)
+    rerollSig[12] = 90 // single cell jumped +40, mean delta is only 40/144 = 0.28!
+    expect(hasVisualFrameChanged(prevSig, rerollSig)).toBe(true)
+    expect(hasVisualFrameChanged(prevSig, new Uint8Array(prevSig))).toBe(false)
+
+    // 3. 4-card candidate slots & 5+ picked augments (e.g. Transmute Chaos / bonus round) evaluate cleanly
+    const slots4 = buildResolutionAwareCardSlots(ocr4.matchedIds, 1920, 1080)
+    expect(slots4.length).toBe(4)
+    expect(slots4[3].slotIndex).toBe(3)
+    expect(slots4[3].totalSlots).toBe(4)
+
+    const advice4 = computeLocalTacticalAdvice(
+      realBundle,
+      {
+        connectionMode: 'live-in-game',
+        playstyleMode: 'steady',
+        myHeroId: '1',
+        allyHeroIds: ['1', '54', '10', '238', '36'],
+        benchHeroIds: [],
+        enemyHeroIds: ['36', '54', '238'],
+        enemyPlayers: [],
+        currentLevel: 15,
+        currentGold: 3000,
+        isDead: true,
+        isAugmentMilestone: true,
+        currentItemIds: ['6653'],
+        pickedAugmentIds: ['1045', '1007', '1037', '1060', '1068'], // 5 already picked!
+        candidateAugmentIds: ocr4.matchedIds,
+        cardSlots: slots4,
+        lastUpdatedAt: Date.now()
+      },
+      '1'
+    )
+    expect(advice4.situationalCandidates.length).toBe(4)
+    expect(advice4.situationalCandidates.filter((c) => c.isRecommendedPick).length).toBe(1)
+  })
+
+  it('computes same-rarity Reroll EV advice, extended threat radar, and recommended spells', () => {
+    const seedPath = resolve(__dirname, '../resources/seed-data/seed-bundle.json')
+    const realBundle = JSON.parse(readFileSync(seedPath, 'utf-8')) as SeedBundle
+    const guide = buildHeroDetailGuide(realBundle, '1')!
+    const prismaticStats = guide.augments
+      .filter((a) => realBundle.augments[a.augmentId]?.rarity === 'prismatic')
+      .sort((a, b) => a.smoothedWinRate - b.smoothedWinRate)
+
+    // Weak offer: pick the 3 lowest win-rate prismatic cards for Annie -> should recommend rerolling!
+    const weakOfferIds = prismaticStats.slice(0, 3).map((a) => a.augmentId)
+    const weakAdvice = computeLocalTacticalAdvice(
+      realBundle,
+      {
+        connectionMode: 'live-in-game',
+        playstyleMode: 'steady',
+        myHeroId: '1',
+        allyHeroIds: ['1', '54', '10', '238', '36'],
+        benchHeroIds: [],
+        enemyHeroIds: ['101', '115', '36', '40', '43'], // 2 poke + 2 shield + 1 heavy heal/tank
+        enemyPlayers: [
+          { heroId: '36', kills: 6, deaths: 1, assists: 5, itemIds: ['3065', '2504'], isFedBoss: true }
+        ],
+        currentLevel: 7,
+        currentGold: 2400,
+        isDead: true,
+        isAugmentMilestone: true,
+        currentItemIds: [],
+        pickedAugmentIds: [],
+        candidateAugmentIds: weakOfferIds,
+        cardSlots: buildResolutionAwareCardSlots(weakOfferIds, 1920, 1080),
+        lastUpdatedAt: Date.now()
+      },
+      '1'
+    )
+    expect(weakAdvice.rerollAdvice?.shouldReroll).toBe(true)
+    expect(weakAdvice.rerollAdvice?.betterRemainingCount).toBeGreaterThanOrEqual(4)
+    expect(weakAdvice.rerollAdvice?.summary).toContain('建议重随')
+    expect(weakAdvice.recommendedSpells).toBeTruthy()
+    expect(weakAdvice.threatRadar.enemyPokeThreat).toBeGreaterThanOrEqual(2)
+    expect(weakAdvice.threatRadar.enemyShieldThreat).toBeGreaterThanOrEqual(2)
+    expect(weakAdvice.threatRadar.allyTankCount).toBeGreaterThanOrEqual(1)
+
+    // Strong offer: include top prismatic card -> should advise keeping, not rerolling!
+    const topCardId = prismaticStats[prismaticStats.length - 1].augmentId
+    const strongOfferIds = [topCardId, weakOfferIds[0], weakOfferIds[1]]
+    const strongAdvice = computeLocalTacticalAdvice(
+      realBundle,
+      {
+        connectionMode: 'live-in-game',
+        playstyleMode: 'steady',
+        myHeroId: '1',
+        allyHeroIds: ['1'],
+        benchHeroIds: [],
+        enemyHeroIds: [],
+        enemyPlayers: [],
+        currentLevel: 7,
+        currentGold: 2400,
+        isDead: true,
+        isAugmentMilestone: true,
+        currentItemIds: [],
+        pickedAugmentIds: [],
+        candidateAugmentIds: strongOfferIds,
+        cardSlots: buildResolutionAwareCardSlots(strongOfferIds, 1920, 1080),
+        lastUpdatedAt: Date.now()
+      },
+      '1'
+    )
+    expect(strongAdvice.rerollAdvice?.shouldReroll).toBe(false)
+    const bestEval = strongAdvice.situationalCandidates.find((c) => c.augmentId === topCardId)
+    expect(bestEval?.rerollAction).toBe('keep')
+  })
+
+  it('supports in-game archetype quick-switch overrides and personal augment wishlist/blacklist markers', () => {
+    const seedPath = resolve(__dirname, '../resources/seed-data/seed-bundle.json')
+    const realBundle = JSON.parse(readFileSync(seedPath, 'utf-8')) as SeedBundle
+    const guide = buildHeroDetailGuide(realBundle, '1')!
+    const targetArch = guide.archetypes[0]
+    expect(targetArch).toBeDefined()
+
+    // 1. Sanitizer enforces mutual exclusion between favoriteAugmentIds and blacklistedAugmentIds
+    const cleanPrefs = sanitizeUserPreferences({
+      favoriteAugmentIds: ['1045', ' 1045 ', '1030'],
+      blacklistedAugmentIds: ['1045', '1007'] // '1045' already in favorites -> stripped from blacklist
+    })
+    expect(cleanPrefs.favoriteAugmentIds).toEqual(['1045', '1030'])
+    expect(cleanPrefs.blacklistedAugmentIds).toEqual(['1007'])
+
+    // 2. Selecting an archetype pushes its recommended items as '流派定制' and boosts its core augments
+    const coreAugId = targetArch.coreAugmentIds[0]
+    const advice = computeLocalTacticalAdvice(
+      realBundle,
+      {
+        connectionMode: 'live-in-game',
+        playstyleMode: 'steady',
+        selectedArchetypeId: targetArch.id,
+        myHeroId: '1',
+        allyHeroIds: ['1'],
+        benchHeroIds: [],
+        enemyHeroIds: [],
+        enemyPlayers: [],
+        currentLevel: 7,
+        currentGold: 3000,
+        isDead: true,
+        isAugmentMilestone: true,
+        currentItemIds: [],
+        pickedAugmentIds: [],
+        candidateAugmentIds: [coreAugId, '1030', '1007'].filter((v, i, a) => a.indexOf(v) === i),
+        cardSlots: [],
+        lastUpdatedAt: Date.now()
+      },
+      '1',
+      cleanPrefs
+    )
+    expect(advice.activeArchetypeId).toBe(targetArch.id)
+    expect(advice.availableArchetypes?.length).toBeGreaterThanOrEqual(1)
+    expect(advice.dynamicBuildPlan.some((s) => s.sourceTag === '流派定制')).toBe(true)
+
+    const favEval = advice.situationalCandidates.find((c) => c.augmentId === '1030')
+    expect(favEval?.userPreference).toBe('favorite')
+    expect(favEval?.rerollAction).toBe('keep')
+
+    const banEval = advice.situationalCandidates.find((c) => c.augmentId === '1007')
+    expect(banEval?.userPreference).toBe('blacklisted')
+    expect(banEval?.rerollAction).toBe('reroll')
   })
 })

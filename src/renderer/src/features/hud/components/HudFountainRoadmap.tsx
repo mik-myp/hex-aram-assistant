@@ -1,6 +1,7 @@
 import React from 'react'
-import { ArrowRight, Loader2, Sparkles } from 'lucide-react'
+import { ArrowRight, Flame, Loader2, ShieldAlert, Sparkles } from 'lucide-react'
 import type {
+  HeroMeta,
   HudDensityMode,
   ItemMeta,
   OverlayOpacityMode,
@@ -12,7 +13,9 @@ interface HudFountainRoadmapProps {
   heroId: string
   currentGold: number
   advice: TacticalAdvice
+  heroes: Record<string, HeroMeta>
   items: Record<string, ItemMeta>
+  enemyCount: number
   opacityMode: OverlayOpacityMode
   densityMode: HudDensityMode
   copiedItemTip: string | null
@@ -27,7 +30,9 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
   heroId,
   currentGold,
   advice,
+  heroes,
   items,
+  enemyCount,
   opacityMode,
   densityMode,
   copiedItemTip,
@@ -38,6 +43,59 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
   onCopyShopItemName
 }) => {
   const nextStep = advice.immediateNextItem
+  const radar = advice.threatRadar
+  const fedBossHero = radar.fedBossHeroId ? heroes[radar.fedBossHeroId] : null
+  const adPct = Math.round(radar.enemyAdRatio * 100)
+  const apPct = Math.max(0, 100 - adPct)
+  const threatChips: Array<{ text: string; tone: string }> = []
+  if (fedBossHero) {
+    threatChips.push({
+      text: `大爹 ${radar.fedBossKills}杀 ${fedBossHero.name}`,
+      tone: 'bg-rose-500/25 text-rose-200 border-rose-400/50'
+    })
+  }
+  if (radar.enemyTankCount >= 2) {
+    threatChips.push({
+      text: `${radar.enemyTankCount}前排`,
+      tone: 'bg-amber-500/20 text-amber-200 border-amber-400/40'
+    })
+  }
+  if (radar.enemyHealThreat >= 2) {
+    threatChips.push({
+      text: '高回血·必重伤',
+      tone: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40'
+    })
+  }
+  if (radar.enemyDiveThreat >= 2) {
+    threatChips.push({
+      text: `${radar.enemyDiveThreat}突脸`,
+      tone: 'bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-400/40'
+    })
+  }
+  if ((radar.enemyPokeThreat ?? 0) >= 2) {
+    threatChips.push({
+      text: `${radar.enemyPokeThreat}长手Poke`,
+      tone: 'bg-sky-500/20 text-sky-200 border-sky-400/40'
+    })
+  }
+  if ((radar.enemyShieldThreat ?? 0) >= 2) {
+    threatChips.push({
+      text: '厚护盾',
+      tone: 'bg-cyan-500/20 text-cyan-200 border-cyan-400/40'
+    })
+  }
+  if ((radar.enemyArmorStackers ?? 0) >= 2) {
+    threatChips.push({
+      text: `${radar.enemyArmorStackers}人堆甲`,
+      tone: 'bg-orange-500/20 text-orange-200 border-orange-400/40'
+    })
+  }
+  if ((radar.enemyMrStackers ?? 0) >= 2) {
+    threatChips.push({
+      text: `${radar.enemyMrStackers}人堆魔抗`,
+      tone: 'bg-indigo-500/20 text-indigo-200 border-indigo-400/40'
+    })
+  }
 
   return (
     <div
@@ -80,6 +138,67 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
       {aiBrief && (
         <div className="px-3 py-2 rounded bg-black/55 border border-[#0AC8B9]/40 text-[11px] text-[#F0E6D2] whitespace-pre-wrap">
           {aiBrief}
+        </div>
+      )}
+
+      {enemyCount > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap text-[10.5px] pt-0.5">
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/45 border border-white/15 font-semibold tabular-nums">
+            <ShieldAlert className="w-3 h-3 text-[#E2C992]" />
+            <span className="text-orange-300">AD {adPct}%</span>
+            <span className="text-[#64748B]">/</span>
+            <span className="text-sky-300">AP {apPct}%</span>
+          </span>
+          {threatChips.map((chip, idx) => (
+            <span
+              key={`threat-${idx}`}
+              className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded border font-semibold ${chip.tone}`}
+            >
+              {idx === 0 && fedBossHero && <Flame className="w-2.5 h-2.5" />}
+              {chip.text}
+            </span>
+          ))}
+          {densityMode === 'detailed' &&
+            advice.playstyleTips.slice(0, 1).map((tip, idx) => (
+              <span key={`tip-${idx}`} className="text-[#AEBCD0] truncate">
+                · {tip}
+              </span>
+            ))}
+        </div>
+      )}
+
+      {advice.availableArchetypes && advice.availableArchetypes.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap text-[10.5px]">
+          <span className="text-[#94A3B8] shrink-0">流派速切:</span>
+          <button
+            type="button"
+            onClick={() => window.hexbuddy.setArchetype(null)}
+            className={`px-2 py-0.5 rounded-full border cursor-pointer transition ${
+              !advice.activeArchetypeId
+                ? 'bg-[#0AC8B9]/25 border-[#0AC8B9] text-[#5CF2E5] font-bold'
+                : 'bg-black/35 border-white/15 text-[#AEBCD0] hover:text-white'
+            }`}
+          >
+            自动推演
+          </button>
+          {advice.availableArchetypes.map((arch) => {
+            const active = advice.activeArchetypeId === arch.id
+            return (
+              <button
+                key={arch.id}
+                type="button"
+                title={arch.itemPivotTip}
+                onClick={() => window.hexbuddy.setArchetype(active ? null : arch.id)}
+                className={`px-2 py-0.5 rounded-full border cursor-pointer transition ${
+                  active
+                    ? 'bg-[#C8AA6E]/30 border-[#C8AA6E] text-[#F8FAFC] font-bold'
+                    : 'bg-black/35 border-white/15 text-[#AEBCD0] hover:text-white'
+                }`}
+              >
+                {arch.title}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -153,6 +272,25 @@ export const HudFountainRoadmap: React.FC<HudFountainRoadmapProps> = ({
           )
         })}
       </div>
+
+      {advice.anvilFocus && (
+        <div className="pt-1.5 border-t border-white/10 flex items-center justify-between gap-3 text-[11px] flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-400/35 font-bold shrink-0">
+              属性铁砧
+            </span>
+            <span className="font-semibold text-[#F8FAFC] truncate">
+              优先 {advice.anvilFocus.primary}
+            </span>
+            <span className="text-[#94A3B8] shrink-0">次选 {advice.anvilFocus.secondary}</span>
+          </div>
+          {densityMode === 'detailed' && (
+            <span className="text-[10.5px] text-[#AEBCD0] truncate">
+              {advice.anvilFocus.reason}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }

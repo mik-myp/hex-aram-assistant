@@ -194,6 +194,8 @@ export class ReadOnlyLcuWatcher {
   private ws: WebSocket | null = null
   private currentPort: string | null = null
   private hadActiveSession = false
+  private lastSnapKey = ''
+  private pollInFlight = false
   private onUpdate: (snapshot: LcuChampSelectSnapshot | null) => void
 
   constructor(onUpdate: (snapshot: LcuChampSelectSnapshot | null) => void) {
@@ -202,8 +204,10 @@ export class ReadOnlyLcuWatcher {
 
   start(): void {
     if (this.timer) return
-    this.pollOnce()
-    this.timer = setInterval(() => this.pollOnce(), 4000)
+    this.pollOnce().catch(() => {})
+    this.timer = setInterval(() => {
+      this.pollOnce().catch(() => {})
+    }, 3500)
   }
 
   stop(): void {
@@ -214,9 +218,19 @@ export class ReadOnlyLcuWatcher {
     this.closeWs()
   }
 
+  private emitIfChanged(snap: LcuChampSelectSnapshot | null): void {
+    const key = snap
+      ? `${snap.inChampSelect ? 1 : 0}|${snap.myHeroId || ''}|${snap.allyHeroIds.join(',')}|${snap.benchHeroIds.join(',')}`
+      : 'null'
+    if (key === this.lastSnapKey) return
+    this.lastSnapKey = key
+    this.onUpdate(snap)
+  }
+
   private closeWs(): void {
     if (this.ws) {
       try {
+        this.ws.removeAllListeners()
         this.ws.close()
       } catch {
         // ignore
@@ -227,43 +241,66 @@ export class ReadOnlyLcuWatcher {
   }
 
   private async pollOnce(): Promise<void> {
-    const creds = await detectLcuCredentials()
-    if (!creds) {
-      this.closeWs()
-      if (this.hadActiveSession) {
-        this.hadActiveSession = false
-        this.onUpdate(null)
+    if (this.pollInFlight) return
+    this.pollInFlight = true
+    try {
+      const creds = await detectLcuCredentials()
+      if (!creds) {
+        this.closeWs()
+        if (this.hadActiveSession) {
+          this.hadActiveSession = false
+          this.emitIfChanged(null)
+        }
+        return
       }
-      return
-    }
 
-    if (this.currentPort !== creds.port || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      this.connectWs(creds)
-    }
+      if (this.currentPort !== creds.port || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        this.connectWs(creds)
+      }
 
-    const session = await lcuReadOnlyGet<RawChampSelectSession>(
-      creds,
-      '/lol-champ-select/v1/session'
-    )
-    const snap = parseSession(session)
-    if (snap.inChampSelect || this.hadActiveSession) {
-      this.hadActiveSession = snap.inChampSelect
-      this.onUpdate(snap)
+      const session = await lcuReadOnlyGet<RawChampSelectSession>(
+        creds,
+        '/lol-champ-select/v1/session'
+      )
+      const snap = parseSession(session)
+      if (snap.inChampSelect || this.hadActiveSession) {
+        this.hadActiveSession = snap.inChampSelect
+        this.emitIfChanged(snap)
+      }
+    } catch {
+      // ignore transient LCU startup/teardown errors
+    } finally {
+      this.pollInFlight = false
     }
   }
 
   private connectWs(creds: LcuCredentials): void {
     this.closeWs()
+    const portNum = Number(creds.port)
+    if (!Number.isInteger(portNum) || portNum <= 0 || portNum > 65535) return
     this.currentPort = creds.port
     const auth = Buffer.from(`riot:${creds.token}`).toString('base64')
-    const ws = new WebSocket(`wss://127.0.0.1:${creds.port}/`, {
-      headers: { Authorization: `Basic ${auth}` },
-      rejectUnauthorized: false
-    })
+    let ws: WebSocket
+    try {
+      ws = new WebSocket(`wss://127.0.0.1:${portNum}/`, {
+        headers: { Authorization: `Basic ${auth}` },
+        rejectUnauthorized: false
+      })
+    } catch {
+      cachedCreds = null
+      this.currentPort = null
+      return
+    }
 
     ws.on('open', () => {
-      // WAMP code 5 = SUBSCRIBE (strictly read-only event subscription)
-      ws.send(JSON.stringify([5, 'OnJsonApiEvent_lol-champ-select_v1_session']))
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          // WAMP code 5 = SUBSCRIBE (strictly read-only event subscription)
+          ws.send(JSON.stringify([5, 'OnJsonApiEvent_lol-champ-select_v1_session']))
+        }
+      } catch {
+        // ignore
+      }
     })
 
     ws.on('message', (data) => {
@@ -272,9 +309,17 @@ export class ReadOnlyLcuWatcher {
         if (Array.isArray(parsed) && parsed[2]?.data) {
           const evType = parsed[2].eventType
           if (evType === 'Delete') {
-            this.onUpdate({ inChampSelect: false, myHeroId: null, allyHeroIds: [], benchHeroIds: [] })
+            this.hadActiveSession = false
+            this.emitIfChanged({
+              inChampSelect: false,
+              myHeroId: null,
+              allyHeroIds: [],
+              benchHeroIds: []
+            })
           } else {
-            this.onUpdate(parseSession(parsed[2].data as RawChampSelectSession))
+            const snap = parseSession(parsed[2].data as RawChampSelectSession)
+            this.hadActiveSession = snap.inChampSelect
+            this.emitIfChanged(snap)
           }
         }
       } catch {
@@ -285,6 +330,13 @@ export class ReadOnlyLcuWatcher {
     ws.on('error', () => {
       cachedCreds = null
       this.closeWs()
+    })
+
+    ws.on('close', () => {
+      if (this.ws === ws) {
+        this.ws = null
+        this.currentPort = null
+      }
     })
 
     this.ws = ws

@@ -1,10 +1,21 @@
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { app, BrowserWindow, Menu, nativeImage, screen, shell, Tray } from 'electron'
-import type { WindowBoundsRect } from '@shared/types'
-import { getActiveLeagueWindow } from '../game/windowTracker'
 import { terminateOcrWorker } from '../ocr/augmentOcr'
-import { runtime, updateService } from '../state/runtimeStore'
+import { broadcastGameState, runtime, updateService } from '../state/runtimeStore'
+import {
+  ensureHudTopmost,
+  isLeagueCurrentlyForeground,
+  normalizeIntegerBounds,
+  syncHudBoundsToLeagueWindow
+} from './hudBoundsSync'
+
+export {
+  ensureHudTopmost,
+  isLeagueCurrentlyForeground,
+  normalizeIntegerBounds,
+  syncHudBoundsToLeagueWindow
+}
 
 function resolveIconPath(): string {
   const prod = resolve(process.resourcesPath || '', '../resources/icon.png')
@@ -55,60 +66,6 @@ export function scheduleIdleHudHibernation(): void {
   }, 8000)
 }
 
-export function syncHudBoundsToLeagueWindow(): void {
-  if (!runtime.hudWindow || runtime.hudWindow.isDestroyed() || runtime.simulatorActive) return
-  const tracked = getActiveLeagueWindow()
-  if (!tracked) {
-    runtime.lastTrackedDipBounds = undefined
-    return
-  }
-
-  if (runtime.currentPrefs.autoHideWhenUnfocused && !runtime.manuallyHiddenHud) {
-    if (!tracked.isForeground && runtime.hudWindow.isVisible()) {
-      runtime.hudWindow.hide()
-      return
-    }
-    if (
-      tracked.isForeground &&
-      !runtime.hudWindow.isVisible() &&
-      (runtime.latestLive?.inGame || runtime.latestLcu?.inChampSelect)
-    ) {
-      runtime.hudWindow.showInactive()
-    }
-  }
-
-  const dipRect =
-    process.platform === 'win32'
-      ? screen.screenToDipRect(runtime.hudWindow, tracked.physicalBounds)
-      : tracked.physicalBounds
-
-  const disp = screen.getDisplayMatching(dipRect).bounds
-  const coversFullMonitor =
-    dipRect.x <= disp.x + 1 &&
-    dipRect.y <= disp.y + 1 &&
-    Math.abs(dipRect.width - disp.width) <= 2 &&
-    Math.abs(dipRect.height - disp.height) <= 2
-
-  const safeBounds: WindowBoundsRect = {
-    x: dipRect.x,
-    y: dipRect.y,
-    width: dipRect.width,
-    height: coversFullMonitor ? Math.max(360, dipRect.height - 1) : dipRect.height
-  }
-  runtime.lastTrackedDipBounds = dipRect
-
-  const cur = runtime.hudWindow.getBounds()
-  const changed =
-    Math.abs(cur.x - safeBounds.x) > 1 ||
-    Math.abs(cur.y - safeBounds.y) > 1 ||
-    Math.abs(cur.width - safeBounds.width) > 1 ||
-    Math.abs(cur.height - safeBounds.height) > 1
-
-  if (changed) {
-    runtime.hudWindow.setBounds(safeBounds, false)
-  }
-}
-
 export function createMainWindow(): void {
   const isMac = process.platform === 'darwin'
   runtime.mainWindow = new BrowserWindow({
@@ -139,10 +96,14 @@ export function createMainWindow(): void {
   })
 
   runtime.mainWindow.on('maximize', () => {
-    runtime.mainWindow?.webContents.send('window:maximized-changed', true)
+    if (runtime.mainWindow && !runtime.mainWindow.isDestroyed()) {
+      runtime.mainWindow.webContents.send('window:maximized-changed', true)
+    }
   })
   runtime.mainWindow.on('unmaximize', () => {
-    runtime.mainWindow?.webContents.send('window:maximized-changed', false)
+    if (runtime.mainWindow && !runtime.mainWindow.isDestroyed()) {
+      runtime.mainWindow.webContents.send('window:maximized-changed', false)
+    }
   })
 
   const r = resolveRendererUrl()
@@ -220,13 +181,23 @@ export function toggleSpatialHud(forceShow?: boolean, userInitiated = false): bo
   const isDisconnectedIdle =
     runtime.gameState.connectionMode === 'disconnected' && !runtime.simulatorActive
 
+  if (forceShow === true && !userInitiated && !runtime.simulatorActive) {
+    if (runtime.manuallyHiddenHud) return false
+    if (runtime.currentPrefs.autoHideWhenUnfocused && !isLeagueCurrentlyForeground()) {
+      return false
+    }
+  }
+
   if (runtime.hudWindow && !runtime.hudWindow.isDestroyed()) {
     if (forceShow === true) {
       if (userInitiated) {
         runtime.manuallyHiddenHud = false
         if (isDisconnectedIdle) runtime.userPinnedHudWhileDisconnected = true
       }
-      runtime.hudWindow.showInactive()
+      if (!runtime.hudWindow.isVisible()) {
+        runtime.hudWindow.showInactive()
+      }
+      ensureHudTopmost(runtime.hudWindow)
       return true
     }
     if (forceShow === false) {
@@ -258,6 +229,7 @@ export function toggleSpatialHud(forceShow?: boolean, userInitiated = false): bo
       runtime.userPinnedHudWhileDisconnected = true
     }
     runtime.hudWindow.showInactive()
+    ensureHudTopmost(runtime.hudWindow)
     return true
   }
 
@@ -267,14 +239,20 @@ export function toggleSpatialHud(forceShow?: boolean, userInitiated = false): bo
     runtime.userPinnedHudWhileDisconnected = true
   }
 
-  const display = screen.getPrimaryDisplay()
-  const bounds = display.bounds
+  const rawBounds = screen.getPrimaryDisplay().bounds
+  const initBounds = normalizeIntegerBounds({
+    x: rawBounds.x,
+    y: rawBounds.y,
+    width: rawBounds.width,
+    height: Math.max(360, rawBounds.height - 1)
+  }) || { x: 0, y: 0, width: 1280, height: 719 }
 
-  runtime.hudWindow = new BrowserWindow({
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: Math.max(360, bounds.height - 1),
+  const hud = new BrowserWindow({
+    x: initBounds.x,
+    y: initBounds.y,
+    width: initBounds.width,
+    height: initBounds.height,
+    show: false,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -292,15 +270,48 @@ export function toggleSpatialHud(forceShow?: boolean, userInitiated = false): bo
     }
   })
 
-  runtime.hudWindow.setAlwaysOnTop(true, 'screen-saver')
-  runtime.hudWindow.setIgnoreMouseEvents(true, { forward: true })
+  runtime.hudWindow = hud
+  hud.setIgnoreMouseEvents(true, { forward: true })
+  // Windows 10 2004+ WDA_EXCLUDEFROMCAPTURE: prevents our own HUD from ever being captured by OCR/GDI!
+  if (process.platform === 'win32') {
+    try {
+      hud.setContentProtection(runtime.currentPrefs.excludeHudFromCapture !== false)
+    } catch {
+      // ignore on older OS builds
+    }
+  }
+
+  const canRevealNow = (): boolean =>
+    userInitiated ||
+    runtime.simulatorActive ||
+    (!runtime.manuallyHiddenHud &&
+      (!runtime.currentPrefs.autoHideWhenUnfocused || isLeagueCurrentlyForeground()))
+
+  hud.webContents.once('did-finish-load', () => {
+    if (hud.isDestroyed()) return
+    if (canRevealNow()) {
+      hud.showInactive()
+      ensureHudTopmost(hud)
+    }
+    syncHudBoundsToLeagueWindow(true)
+    broadcastGameState()
+  })
+
+  hud.once('ready-to-show', () => {
+    if (!hud.isDestroyed() && !hud.isVisible() && canRevealNow()) {
+      hud.showInactive()
+      ensureHudTopmost(hud)
+    }
+  })
 
   const r = resolveRendererUrl('mini')
-  if (r.isUrl) runtime.hudWindow.loadURL(r.target)
-  else runtime.hudWindow.loadFile(r.target, { hash: 'mini' })
+  if (r.isUrl) hud.loadURL(r.target)
+  else hud.loadFile(r.target, { hash: 'mini' })
 
-  runtime.hudWindow.on('closed', () => {
-    runtime.hudWindow = null
+  hud.on('closed', () => {
+    if (runtime.hudWindow === hud) {
+      runtime.hudWindow = null
+    }
   })
   return true
 }

@@ -231,6 +231,15 @@ export const AboutDiagnosticsSection: React.FC<AboutDiagnosticsSectionProps> = (
             </CardAction>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {diag.exclusiveFullscreenSuspected && (
+              <Alert variant="destructive" className="md:col-span-2">
+                <AlertTriangle className="text-amber-400 mt-0.5" />
+                <AlertTitle>
+                  检测到游戏可能运行在「独占全屏」模式（局部抓屏返回黑屏）：请在 LoL 视频设置中改为「无边框」模式，以恢复原位 HUD 自动置顶与毫秒级识卡。
+                </AlertTitle>
+              </Alert>
+            )}
+
             <div className="p-3 rounded-lg bg-[#10192b] border border-border flex items-start gap-2.5">
               <CheckCircle2 className="size-4 text-emerald-400 shrink-0 mt-0.5" />
               <div>

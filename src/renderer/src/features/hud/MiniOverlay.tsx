@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import {
   clamp,
-  computeGameAugmentCardBoxes,
+  computeGameAugmentCardBoxesForCount,
   resolveClientEffectiveRect,
   SIMULATOR_RESOLUTION_PRESETS
 } from '@shared/layoutGeometry'
@@ -61,8 +61,21 @@ export const MiniOverlay: React.FC = () => {
     }
   }
 
+  const offerCardCount: 2 | 3 | 4 =
+    gameState.cardSlots[0]?.totalSlots ??
+    (gameState.cardSlots.length >= 4 || gameState.cardSlots.some((s) => s.slotIndex >= 3)
+      ? 4
+      : gameState.cardSlots.length === 2
+        ? 2
+        : 3)
   const clientEffective = resolveClientEffectiveRect(viewportW, viewportH)
-  const cardBoxes = computeGameAugmentCardBoxes(viewportW, viewportH, offsetX, offsetY)
+  const cardBoxes = computeGameAugmentCardBoxesForCount(
+    viewportW,
+    viewportH,
+    offerCardCount,
+    offsetX,
+    offsetY
+  )
   const hudUiScale =
     clamp((isChampSelect ? clientEffective.height : viewportH) / 1080, 0.66, 2.15) * userHudScale
 
@@ -128,6 +141,7 @@ export const MiniOverlay: React.FC = () => {
         <HudTopControlBar
           heroId={session.heroId}
           currentHero={heroes[session.heroId]}
+          heroes={heroes}
           gameState={gameState}
           augments={augments}
           items={items}

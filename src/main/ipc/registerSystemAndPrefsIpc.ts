@@ -11,8 +11,10 @@ import {
 import type { AiSettings, UserPreferences } from '@shared/types'
 import { triggerManualHudOcr } from '../game/visionLoop'
 import { checkWindowsElevationParity, relaunchAsWindowsAdmin } from '../game/windowTracker'
+import { readLocalMatchHistory } from '../data/matchHistoryStore'
 import { buildDiagnosticSummary, getLogDirPath } from '../logger/diagLogger'
 import { getOcrDiagnosticStatus } from '../ocr/augmentOcr'
+import { isExclusiveFullscreenSuspected } from '../ocr/win32ScreenCapture'
 import {
   registerGlobalShortcuts,
   setShortcutRecordingPaused
@@ -174,12 +176,15 @@ export function registerSystemAndPrefsIpc(): void {
   ipcMain.handle('system:get-diagnostics', async () => {
     const elev = checkWindowsElevationParity()
     const meta = syncService.getMeta()
+    const historyCount = (await readLocalMatchHistory()).length
     const trackedStr = runtime.lastTrackedDipBounds
       ? `${runtime.gameState.targetWindowKind || 'game'} ${runtime.lastTrackedDipBounds.width}x${runtime.lastTrackedDipBounds.height} @(${runtime.lastTrackedDipBounds.x},${runtime.lastTrackedDipBounds.y})`
       : '未锁定游戏窗口'
     return buildDiagnosticSummary({
       isSelfElevated: elev.isSelfElevated,
       leagueElevatedMismatch: elev.leagueElevatedMismatch,
+      exclusiveFullscreenSuspected: isExclusiveFullscreenSuspected(),
+      localMatchesRecorded: historyCount,
       connectionMode: runtime.gameState.connectionMode,
       trackedWindowSummary: trackedStr,
       ocrEngineSummary: getOcrDiagnosticStatus(runtime.currentPrefs.ocrEngineMode),

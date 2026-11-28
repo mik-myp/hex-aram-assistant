@@ -10,8 +10,10 @@ import {
 } from '@shared/configSchema'
 import type {
   AiSettings,
+  AugmentOfferSlotIndex,
   CacheStatsInfo,
   GameLiveState,
+  MatchOutcome,
   PlaystyleMode,
   ShortcutStatusMap,
   UserPreferences,
@@ -47,7 +49,7 @@ export const runtime = {
   ocrBusy: false,
   lastOcrScanAt: 0,
   emptyOfferScans: 0,
-  lastHoveredCardSlot: 1 as 0 | 1 | 2,
+  lastHoveredCardSlot: 1 as AugmentOfferSlotIndex,
   manuallyHiddenHud: false,
   userPinnedHudWhileDisconnected: false,
   hudIdleDestroyTimer: null as NodeJS.Timeout | null,
@@ -57,7 +59,15 @@ export const runtime = {
   wasDeadInLive: false,
   lastRespawnedAt: 0,
   matchEnteredAt: 0,
+  lastLiveMatchStats: null as {
+    kills: number
+    deaths: number
+    assists: number
+    gameTimeSec: number
+    result: MatchOutcome
+  } | null,
   lastTrackedDipBounds: undefined as WindowBoundsRect | undefined,
+  lastTrackedPhysicalBounds: undefined as WindowBoundsRect | undefined,
 
   shortcutRecordingPaused: false,
   clipboardRestoreTimer: null as NodeJS.Timeout | null,
@@ -171,6 +181,19 @@ export async function savePrefsToDisk(next: Partial<UserPreferences>): Promise<U
     }
   }
 
+  if (
+    process.platform === 'win32' &&
+    next.excludeHudFromCapture !== undefined &&
+    runtime.hudWindow &&
+    !runtime.hudWindow.isDestroyed()
+  ) {
+    try {
+      runtime.hudWindow.setContentProtection(Boolean(runtime.currentPrefs.excludeHudFromCapture))
+    } catch {
+      // ignore on unsupported OS builds
+    }
+  }
+
   for (const win of [runtime.mainWindow, runtime.hudWindow]) {
     if (win && !win.isDestroyed()) {
       win.webContents.send('prefs:updated', runtime.currentPrefs)
@@ -182,8 +205,12 @@ export async function savePrefsToDisk(next: Partial<UserPreferences>): Promise<U
 export function broadcastGameState(): void {
   runtime.gameState = { ...runtime.gameState, lastUpdatedAt: Date.now() }
   for (const win of [runtime.mainWindow, runtime.hudWindow]) {
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('game:state-updated', runtime.gameState)
+    if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
+      try {
+        win.webContents.send('game:state-updated', runtime.gameState)
+      } catch {
+        // ignore transient renderer teardown race
+      }
     }
   }
 }

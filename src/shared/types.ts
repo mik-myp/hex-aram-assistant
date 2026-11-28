@@ -18,7 +18,7 @@ export type AiToneStyle = 'concise' | 'witty' | 'beginner'
 
 export type PlaystyleMode = 'steady' | 'counter' | 'team' | 'yolo' | 'torment'
 
-export type MainViewTab = 'heroes' | 'augments' | 'settings'
+export type MainViewTab = 'heroes' | 'augments' | 'history' | 'settings'
 
 export type SettingsSectionId =
   | 'general'
@@ -190,6 +190,8 @@ export interface UserPreferences {
   uiFontScale: UiFontScale
   preferredRoles: HeroRole[]
   favoriteHeroIds: string[]
+  favoriteAugmentIds?: string[]
+  blacklistedAugmentIds?: string[]
   overlayOpacity: OverlayOpacityMode
   hudScale: number
   hudDensity: HudDensityMode
@@ -207,6 +209,7 @@ export interface UserPreferences {
   launchAtLogin?: boolean
   badgePosition: 'top' | 'bottom'
   autoHideWhenUnfocused: boolean
+  excludeHudFromCapture?: boolean
   hudOffsetX: number
   hudOffsetY: number
 }
@@ -234,8 +237,11 @@ export interface EnemyPlayerLiveInfo {
   isFedBoss: boolean
 }
 
+export type AugmentOfferSlotIndex = 0 | 1 | 2 | 3
+
 export interface CardSlotAnchor {
-  slotIndex: 0 | 1 | 2
+  slotIndex: AugmentOfferSlotIndex
+  totalSlots?: 2 | 3 | 4
   augmentId: string
   xRatio: number
   yRatio: number
@@ -253,6 +259,7 @@ export interface GameLiveState {
   connectionMode: 'disconnected' | 'lcu-champ-select' | 'live-in-game' | 'simulator'
   simulatorScene?: 'champ-select' | 'level-7-pick' | 'fountain-buy'
   playstyleMode: PlaystyleMode
+  selectedArchetypeId?: string | null
   myHeroId: string | null
   allyHeroIds: string[]
   benchHeroIds: string[]
@@ -281,67 +288,19 @@ export interface OcrRecognizeResult {
   error?: string
 }
 
-export interface ThreatRadar {
-  enemyAdRatio: number
-  enemyApRatio: number
-  enemyTankCount: number
-  enemyHealThreat: number
-  enemyDiveThreat: number
-  fedBossHeroId: string | null
-  fedBossKills: number
-  allyDamageWarning: string | null
-}
-
-export interface SituationalAugmentEval {
-  augmentId: string
-  slotIndex?: 0 | 1 | 2
-  isRecommendedPick: boolean
-  hasConflict: boolean
-  baseWinRate: number
-  deltaWinRate: number
-  situationalScore: number
-  situationalBonus: number
-  verdict: AugmentVerdict
-  verdictLabel: string
-  primaryTag: string
-  situationReasons: string[]
-  pivotItem?: {
-    itemId: string
-    name: string
-    winRate: number
-  }
-}
-
-export interface DynamicBuildStep {
-  itemId: string
-  owned: boolean
-  affordableNow: boolean
-  goldRemaining: number
-  sourceTag:
-    | '常规核心'
-    | '海克斯变阵'
-    | '专治大爹'
-    | '重伤克制'
-    | '打坦穿透'
-    | '防秒抗性'
-    | '独爽核弹'
-    | '折磨恶心'
-    | '团队补位'
-  reason: string
-}
-
-export interface TacticalAdvice {
-  playstyleMode: PlaystyleMode
-  headline: string
-  threatRadar: ThreatRadar
-  recommendedShoe: { itemId: string; owned: boolean; reason: string } | null
-  immediateNextItem: DynamicBuildStep | null
-  dynamicBuildPlan: DynamicBuildStep[]
-  situationalCandidates: SituationalAugmentEval[]
-  counterItemIds: Array<{ itemId: string; reason: string }>
-  nextAugmentFocus: string
-  playstyleTips: string[]
-}
+export type {
+  ArchetypeOption,
+  DiagnosticSummary,
+  DynamicBuildStep,
+  LocalMatchHistoryRecord,
+  LocalMatchHistorySummary,
+  MatchOutcome,
+  RerollAction,
+  RerollOfferAdvice,
+  SituationalAugmentEval,
+  TacticalAdvice,
+  ThreatRadar
+} from './tacticalTypes'
 
 export interface AiSettings {
   enabled: boolean
@@ -399,17 +358,4 @@ export interface AppUpdateState {
   downloadedFilePath: string | null
   errorMessage?: string
   checkedAt: number | null
-}
-
-export interface DiagnosticSummary {
-  isWindows: boolean
-  isSelfElevated: boolean
-  leagueElevatedMismatch: boolean
-  connectionMode: GameLiveState['connectionMode']
-  trackedWindowSummary: string
-  ocrEngineSummary: string
-  datasetSummary: string
-  memoryRssMb: number
-  logDirPath: string
-  formattedReport: string
 }

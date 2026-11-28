@@ -1,5 +1,6 @@
 import { buildHeroDetailGuide } from '../data/synergyEngine'
 import type { AiSettings, GameLiveState, PlaystyleMode, SeedBundle } from '@shared/types'
+import { computeLocalTacticalAdvice } from './tacticalEngine'
 
 export async function testLlmConnection(
   settings: AiSettings
@@ -99,32 +100,58 @@ export async function askCustomLlmAdvisor(params: {
     .map((id) => bundle.augments[id]?.name)
     .filter(Boolean)
     .join('、')
+  const myItemNames = state.currentItemIds
+    .map((id) => bundle.items[id]?.name)
+    .filter(Boolean)
+    .join('、')
+  const allyNames = state.allyHeroIds
+    .map((id) => bundle.heroes[id]?.name)
+    .filter(Boolean)
+    .join('、')
   const enemySummary = state.enemyPlayers
     .map((ep) => {
       const h = bundle.heroes[ep.heroId]
-      return h ? `${h.name}(${ep.kills}/${ep.deaths})` : ''
+      if (!h) return ''
+      const keyItems = ep.itemIds
+        .map((iid) => bundle.items[iid]?.name)
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('/')
+      return `${h.name}(${ep.kills}/${ep.deaths}${keyItems ? `·${keyItems}` : ''})`
     })
     .filter(Boolean)
     .join('、')
 
+  const localAdvice = computeLocalTacticalAdvice(bundle, state, heroId)
+  const candSummary = localAdvice.situationalCandidates
+    .map((ev) => {
+      const name = bundle.augments[ev.augmentId]?.name || ev.augmentId
+      return `${name}(综合${(ev.situationalScore * 100).toFixed(1)}%·${ev.primaryTag})`
+    })
+    .join(' vs ')
+
   const tonePromptMap: Record<AiSettings['toneStyle'], string> = {
     concise:
-      '语气干脆利落、一针见血，在 80 字内用 3 条极简短句输出：1.海克斯思路；2.下一件必出装备；3.一句话打法。绝不废话。',
+      '语气干脆利落、一针见血，在 90 字内用 3 条极简短句输出：1.综合全局选海克斯思路；2.下一件针对装备；3.一句话打法。绝不废话。',
     witty:
-      '语气带一点大乱斗老哥的幽默毒舌整活感（但不冒犯玩家），在 95 字内用 3 条短句给出：1.海克斯吐槽与思路；2.下一件针对装；3.团战骚操作提醒。',
+      '语气带一点大乱斗老哥的幽默毒舌整活感（但不冒犯玩家），在 100 字内用 3 条短句给出：1.海克斯吐槽与全局选择；2.下一件针对装；3.团战骚操作提醒。',
     beginner:
-      '面向刚玩大乱斗的新手玩家，用通俗大白话解释原因（避免生僻黑话），在 105 字内分 3 条说明：1.海克斯配合逻辑；2.下一件买什么及克制谁；3.站位与技能释放要点。'
+      '面向刚玩大乱斗的新手玩家，用通俗大白话解释原因（避免生僻黑话），在 110 字内分 3 条说明：1.海克斯与阵容/装备配合逻辑；2.下一件买什么及克制谁；3.站位与技能释放要点。'
   }
 
-  const systemPrompt = `你是英雄联盟海克斯大乱斗局内原位HUD军师。严格按玩家当前选择的【心态模式】给出建议。${
+  const systemPrompt = `你是英雄联盟海克斯大乱斗局内原位HUD军师。请务必综合我方阵容、已出装备、已拿海克斯、敌方阵容与出装、等级阶段以及玩家【心态模式】给出全局建议。${
     tonePromptMap[settings.toneStyle || 'concise']
   }`
 
   const contextPrompt = [
     `玩家英雄：${guide.hero.name}（心态模式：【${modeNameMap[state.playstyleMode]}】）`,
     `等级：${state.currentLevel}级，当前金币：${state.currentGold}`,
-    `敌方战况：${enemySummary || state.enemyHeroIds.map((id) => bundle.heroes[id]?.name).join('、') || '未知'}`,
+    `我方阵容：${allyNames || '未知'}${localAdvice.threatRadar.allyDamageWarning ? `（${localAdvice.threatRadar.allyDamageWarning}）` : ''}`,
+    `我方已出装备：${myItemNames || '暂无成装'}`,
     `已拿海克斯：${pickedNames || '暂无'}`,
+    candSummary ? `当前三选一候选：${candSummary}` : '',
+    localAdvice.anvilFocus ? `属性铁砧建议：主拿${localAdvice.anvilFocus.primary}` : '',
+    `敌方战况与装备：${enemySummary || state.enemyHeroIds.map((id) => bundle.heroes[id]?.name).join('、') || '未知'}`,
     userQuestion && userQuestion !== '__MINI_BRIEF__' ? `补充诉求：${userQuestion}` : ''
   ]
     .filter(Boolean)

@@ -33,13 +33,24 @@ export function computeBenchSuggestions(
   const favSet = new Set(prefs?.favoriteHeroIds || [])
   const prefRoles = new Set(prefs?.preferredRoles || [])
 
-  const allyHeroes = allyHeroIds
+  // Exclude the player's current champion so comp balance evaluates the ACTUAL post-swap 5-man team!
+  let removedSelf = false
+  const otherAllies = allyHeroIds
+    .filter((id) => {
+      if (!removedSelf && myHeroId && id === myHeroId) {
+        removedSelf = true
+        return false
+      }
+      return true
+    })
     .map((id) => bundle.heroes[id])
     .filter((h): h is HeroMeta => Boolean(h))
 
-  const apCount = allyHeroes.filter((h) => h.damageType === 'AP').length
-  const adCount = allyHeroes.filter((h) => h.damageType === 'AD').length
-  const tankCount = allyHeroes.filter((h) => h.roles.includes('tank')).length
+  const otherApCount = otherAllies.filter((h) => h.damageType === 'AP').length
+  const otherAdCount = otherAllies.filter((h) => h.damageType === 'AD').length
+  const otherTankCount = otherAllies.filter((h) => h.roles.includes('tank')).length
+  const otherMarksmanCount = otherAllies.filter((h) => h.roles.includes('marksman')).length
+  const myHeroIsSoleTank = Boolean(myHero?.roles.includes('tank') && otherTankCount === 0 && otherAllies.length >= 3)
 
   return benchHeroIds
     .map((id, benchIndex) => {
@@ -68,18 +79,27 @@ export function computeBenchSuggestions(
       if (matchesPreferredRole) reasons.push('常玩定位')
 
       let compBonus = 0
-      if (tankCount === 0 && h.roles.includes('tank')) {
-        reasons.push('补前排')
+      if (otherTankCount === 0 && h.roles.includes('tank')) {
+        reasons.push('换后补前排')
         if (shortTag === h.tier) shortTag = '补关键前排'
-        compBonus += 0.015
-      } else if (apCount >= 3 && h.damageType === 'AD') {
-        reasons.push('缺AD补伤')
+        compBonus += 0.022
+      } else if (myHeroIsSoleTank && !h.roles.includes('tank') && !h.roles.includes('fighter')) {
+        reasons.push('换后无前排')
+        compBonus -= 0.014
+      }
+
+      if (otherApCount >= 3 && h.damageType === 'AD') {
+        reasons.push('缺AD补物理')
         if (shortTag === h.tier) shortTag = '补关键AD'
-        compBonus += 0.015
-      } else if (adCount >= 3 && h.damageType === 'AP') {
-        reasons.push('菜刀补AP')
+        compBonus += 0.02
+      } else if (otherAdCount >= 3 && h.damageType === 'AP') {
+        reasons.push('菜刀补法伤')
         if (shortTag === h.tier) shortTag = '补关键AP'
-        compBonus += 0.015
+        compBonus += 0.02
+      } else if (otherAllies.length >= 3 && otherMarksmanCount === 0 && h.roles.includes('marksman')) {
+        reasons.push('补持续DPS')
+        if (shortTag === h.tier) shortTag = '补后期输出'
+        compBonus += 0.012
       }
 
       if (reasons.length === 0) {

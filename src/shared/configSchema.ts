@@ -25,6 +25,8 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   uiFontScale: 'comfortable',
   preferredRoles: [],
   favoriteHeroIds: [],
+  favoriteAugmentIds: [],
+  blacklistedAugmentIds: [],
   overlayOpacity: 'solid',
   hudScale: 1,
   hudDensity: 'detailed',
@@ -42,6 +44,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   launchAtLogin: false,
   badgePosition: 'top',
   autoHideWhenUnfocused: true,
+  excludeHudFromCapture: true,
   hudOffsetX: 0,
   hudOffsetY: 0
 }
@@ -100,6 +103,29 @@ export function sanitizeUserPreferences(raw: unknown): UserPreferences {
       ).slice(0, 200)
     : [...DEFAULT_USER_PREFERENCES.favoriteHeroIds]
 
+  const favoriteAugmentIds = Array.isArray(src.favoriteAugmentIds)
+    ? Array.from(
+        new Set(
+          src.favoriteAugmentIds
+            .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+            .map((id) => id.trim())
+        )
+      ).slice(0, 120)
+    : []
+  const favAugSet = new Set(favoriteAugmentIds)
+  const blacklistedAugmentIds = Array.isArray(src.blacklistedAugmentIds)
+    ? Array.from(
+        new Set(
+          src.blacklistedAugmentIds
+            .filter(
+              (id): id is string =>
+                typeof id === 'string' && id.trim().length > 0 && !favAugSet.has(id.trim())
+            )
+            .map((id) => id.trim())
+        )
+      ).slice(0, 120)
+    : []
+
   const overlayOpacity =
     typeof src.overlayOpacity === 'string' && VALID_OPACITY.has(src.overlayOpacity as OverlayOpacityMode)
       ? (src.overlayOpacity as OverlayOpacityMode)
@@ -146,6 +172,8 @@ export function sanitizeUserPreferences(raw: unknown): UserPreferences {
     uiFontScale,
     preferredRoles,
     favoriteHeroIds,
+    favoriteAugmentIds,
+    blacklistedAugmentIds,
     overlayOpacity,
     hudScale,
     hudDensity,
@@ -178,6 +206,7 @@ export function sanitizeUserPreferences(raw: unknown): UserPreferences {
       src.autoHideWhenUnfocused,
       DEFAULT_USER_PREFERENCES.autoHideWhenUnfocused
     ),
+    excludeHudFromCapture: asBool(src.excludeHudFromCapture, true),
     hudOffsetX,
     hudOffsetY
   }

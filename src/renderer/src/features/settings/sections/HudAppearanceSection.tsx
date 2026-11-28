@@ -285,6 +285,21 @@ export const HudAppearanceSection: React.FC<HudAppearanceSectionProps> = ({
                 onCheckedChange={(checked) => onPatchPref({ autoHideWhenUnfocused: checked })}
               />
             </div>
+
+            <div className="p-3 rounded-lg bg-[#10192b] border border-border flex items-center justify-between gap-3 md:col-span-2">
+              <div>
+                <div className="text-xs font-semibold text-foreground">
+                  防自读与录屏隐私隐藏（Win10/11 推荐开启）
+                </div>
+                <p className="text-2xs text-muted-foreground">
+                  截屏识卡时系统自动剔除 HUD 自身浮窗，彻底杜绝自读干扰；如需 OBS 录屏展示 HUD 请关闭
+                </p>
+              </div>
+              <Switch
+                checked={prefs.excludeHudFromCapture !== false}
+                onCheckedChange={(checked) => onPatchPref({ excludeHudFromCapture: checked })}
+              />
+            </div>
           </div>
 
           <Separator />

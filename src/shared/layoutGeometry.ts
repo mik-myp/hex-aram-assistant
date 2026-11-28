@@ -1,4 +1,4 @@
-import type { CardSlotAnchor, WindowBoundsRect } from './types'
+import type { AugmentOfferSlotIndex, CardSlotAnchor, WindowBoundsRect } from './types'
 
 /**
  * Empirically calibrated spatial geometry for League of Legends CN/Global Client & Game.
@@ -24,11 +24,13 @@ export const CLIENT_BASE_W = 1920
 export const CLIENT_BASE_H = 1080
 export const CLIENT_BENCH_MAX_SLOTS = 10
 
-// Height-proportional constants for In-Game 3-Pick Hextech Augment modal
+// Empirically verified height-proportional constants (both 3-pick and 4-pick share identical card step & width!)
 export const GAME_CARD_STEP_BY_H = 0.3417
 export const GAME_CARD_WIDTH_BY_H = 0.2869
 export const GAME_CARD_FRAME_TOP_BY_H = 0.218
 export const GAME_CARD_FRAME_BOTTOM_BY_H = 0.648
+export const GAME_CARD_ICON_TOP_BY_H = 0.252
+export const GAME_CARD_ICON_BOTTOM_BY_H = 0.368
 export const GAME_CARD_TITLE_TOP_BY_H = 0.3869
 export const GAME_CARD_TITLE_BOTTOM_BY_H = 0.4335
 export const GAME_CARD_REROLL_TOP_BY_H = 0.665
@@ -58,10 +60,11 @@ export interface ClientTeamSlotLayout {
 }
 
 export interface GameAugmentCardBox {
-  slotIndex: 0 | 1 | 2
+  slotIndex: AugmentOfferSlotIndex
   centerX: number
   centerXRatio: number
   cardFrame: WindowBoundsRect
+  iconRect: WindowBoundsRect
   titleBand: WindowBoundsRect
   rerollRect: WindowBoundsRect
   badgeTopModeBottomY: number
@@ -165,82 +168,139 @@ export function computeClientTeamSlotLayouts(
 }
 
 /**
- * Computes aspect-ratio invariant pixel & ratio geometry for the 3 In-Game Hextech Augment Cards
- * for ANY resolution W × H (1280×720, 1920×1080, 2560×1440, 2560×1600 16:10, 3440×1440 21:9, 3840×2160 4K).
+ * Computes aspect-ratio invariant geometry for 2, 3, or 4 In-Game Hextech Augment Cards.
+ * Empirically verified against CN client captures (ref: czgreat/aramhex v1.2.0):
+ *  - 3-pick and 4-pick use the EXACT SAME card spacing (0.3417 * H) and width (0.2869 * H).
+ *  - 3-pick centers sit at W/2 + (-1.0, 0.0, +1.0) * spacing.
+ *  - 4-pick centers sit at W/2 + (-1.5, -0.5, +0.5, +1.5) * spacing (clamping outer width on narrow 4:3 screens).
  */
-export function computeGameAugmentCardBoxes(
+export function computeGameAugmentCardBoxesForCount(
   gameW: number,
   gameH: number,
+  cardCount: 2 | 3 | 4 = 3,
   offsetXPercent = 0,
   offsetYPercent = 0
-): [GameAugmentCardBox, GameAugmentCardBox, GameAugmentCardBox] {
+): GameAugmentCardBox[] {
   const W = Math.max(320, gameW)
   const H = Math.max(240, gameH)
   const uiScale = clamp(H / 1080, 0.64, 2.4)
   const stepPx = GAME_CARD_STEP_BY_H * H
-  const cardWidth = GAME_CARD_WIDTH_BY_H * H
+  const halfSpanIdx = (cardCount - 1) / 2
   const dx = (offsetXPercent / 100) * W
   const dy = (offsetYPercent / 100) * H
 
-  const buildOne = (slotIndex: 0 | 1 | 2): GameAugmentCardBox => {
-    // Notice small empirical +0.0038W slight right bias on CN client is < 4px; W/2 + (i - 1)*stepPx is exact universal center
-    const centerX = W / 2 + (slotIndex - 1) * stepPx + dx
-    const cardLeft = centerX - cardWidth / 2
+  // Clamp half-width on narrow (e.g. 4:3) 4-card layouts so outer cards stay within viewport without shifting centers
+  const outerMargin = Math.max(4, W / 2 - halfSpanIdx * stepPx)
+  const cardWidth = Math.min(GAME_CARD_WIDTH_BY_H * H, stepPx * 0.96, outerMargin * 2)
+
+  const boxes: GameAugmentCardBox[] = []
+  for (let i = 0; i < cardCount; i++) {
+    const slotIndex = i as AugmentOfferSlotIndex
+    const centerX = W / 2 + (i - halfSpanIdx) * stepPx + dx
+    const cardLeft = clamp(centerX - cardWidth / 2, 0, Math.max(0, W - cardWidth))
     const frameTop = GAME_CARD_FRAME_TOP_BY_H * H + dy
     const frameBottom = GAME_CARD_FRAME_BOTTOM_BY_H * H + dy
+    const iconTop = GAME_CARD_ICON_TOP_BY_H * H + dy
+    const iconSize = (GAME_CARD_ICON_BOTTOM_BY_H - GAME_CARD_ICON_TOP_BY_H) * H
     const titleTop = GAME_CARD_TITLE_TOP_BY_H * H + dy
     const titleBottom = GAME_CARD_TITLE_BOTTOM_BY_H * H + dy
     const rerollTop = GAME_CARD_REROLL_TOP_BY_H * H + dy
     const rerollBottom = GAME_CARD_REROLL_BOTTOM_BY_H * H + dy
     const rerollW = cardWidth * 0.46
 
-    return {
+    boxes.push({
       slotIndex,
       centerX,
       centerXRatio: centerX / W,
-      cardFrame: {
-        x: Math.round(cardLeft),
-        y: Math.round(frameTop),
-        width: Math.round(cardWidth),
-        height: Math.round(frameBottom - frameTop)
-      },
-      titleBand: {
-        x: Math.round(cardLeft),
-        y: Math.round(titleTop),
-        width: Math.round(cardWidth),
-        height: Math.round(titleBottom - titleTop)
-      },
-      rerollRect: {
-        x: Math.round(centerX - rerollW / 2),
-        y: Math.round(rerollTop),
-        width: Math.round(rerollW),
-        height: Math.round(rerollBottom - rerollTop)
-      },
+      cardFrame: { x: Math.round(cardLeft), y: Math.round(frameTop), width: Math.round(cardWidth), height: Math.round(frameBottom - frameTop) },
+      iconRect: { x: Math.round(centerX - iconSize / 2), y: Math.round(iconTop), width: Math.round(iconSize), height: Math.round(iconSize) },
+      titleBand: { x: Math.round(cardLeft), y: Math.round(titleTop), width: Math.round(cardWidth), height: Math.round(titleBottom - titleTop) },
+      rerollRect: { x: Math.round(centerX - rerollW / 2), y: Math.round(rerollTop), width: Math.round(rerollW), height: Math.round(rerollBottom - rerollTop) },
       badgeTopModeBottomY: GAME_BADGE_TOP_MODE_BOTTOM_BY_H * H + dy,
       badgeBottomModeTopY: GAME_BADGE_BOTTOM_MODE_TOP_BY_H * H + dy,
       badgeWidth: Math.round(clamp(cardWidth * 0.94, 176, 560)),
       uiScale
-    }
+    })
   }
-
-  return [buildOne(0), buildOne(1), buildOne(2)]
+  return boxes
 }
 
 /**
- * Builds CardSlotAnchor[] for a given resolution W × H (defaults to 16:9 1920×1080 ratios,
- * though MiniOverlay also recomputes dynamically from live viewport W × H!).
+ * Fits detected card horizontal centers against real 3-pick [-1, 0, +1] vs 4-pick [-1.5, -0.5, +0.5, +1.5]
+ * spacing offsets (ref: aramhex `_layout_columns`). Even when only 2 or 3 cards out of a 4-pick screen
+ * are recognized, the half-card phase shift reliably distinguishes 4-pick and assigns exact slot indices!
  */
+export function fitAugmentColumnsToLayout(
+  centersX: number[],
+  gameW: number,
+  gameH: number
+): { totalSlots: 3 | 4; slotIndices: AugmentOfferSlotIndex[] } {
+  if (centersX.length >= 4) {
+    return { totalSlots: 4, slotIndices: [0, 1, 2, 3].slice(0, centersX.length) as AugmentOfferSlotIndex[] }
+  }
+  const spacing = GAME_CARD_STEP_BY_H * Math.max(240, gameH)
+  const offsets = centersX.map((cx) => (cx - gameW / 2) / spacing)
+
+  const fit = (slots: number[]): { cols: AugmentOfferSlotIndex[] | null; err: number } => {
+    const cols: AugmentOfferSlotIndex[] = []
+    let worst = 0
+    for (const u of offsets) {
+      let bestIdx = 0
+      let bestDist = Infinity
+      for (let j = 0; j < slots.length; j++) {
+        const d = Math.abs(u - slots[j])
+        if (d < bestDist) {
+          bestDist = d
+          bestIdx = j
+        }
+      }
+      cols.push(bestIdx as AugmentOfferSlotIndex)
+      if (bestDist > worst) worst = bestDist
+    }
+    if (new Set(cols).size !== cols.length) return { cols: null, err: Infinity }
+    return { cols, err: worst }
+  }
+
+  const fit3 = fit([-1.0, 0.0, 1.0])
+  const fit4 = fit([-1.5, -0.5, 0.5, 1.5])
+  if (fit4.cols && fit4.err < 0.25 && fit4.err < fit3.err) {
+    return { totalSlots: 4, slotIndices: fit4.cols }
+  }
+  if (fit3.cols) {
+    return { totalSlots: 3, slotIndices: fit3.cols }
+  }
+  return {
+    totalSlots: 3,
+    slotIndices: centersX.map((_, idx) => Math.min(2, idx) as AugmentOfferSlotIndex)
+  }
+}
+
+export function computeGameAugmentCardBoxes(
+  gameW: number,
+  gameH: number,
+  offsetXPercent = 0,
+  offsetYPercent = 0
+): [GameAugmentCardBox, GameAugmentCardBox, GameAugmentCardBox] {
+  const b = computeGameAugmentCardBoxesForCount(gameW, gameH, 3, offsetXPercent, offsetYPercent)
+  return [b[0], b[1], b[2]]
+}
+
 export function buildResolutionAwareCardSlots(
   augmentIds: string[],
   gameW = 1920,
-  gameH = 1080
+  gameH = 1080,
+  totalSlotsOverride?: 2 | 3 | 4
 ): CardSlotAnchor[] {
-  const boxes = computeGameAugmentCardBoxes(gameW, gameH)
-  return augmentIds.slice(0, 3).map((augmentId, idx) => {
-    const slotIndex = idx as 0 | 1 | 2
-    const box = boxes[slotIndex]
+  const capped = augmentIds.slice(0, 4)
+  const totalSlots: 2 | 3 | 4 =
+    totalSlotsOverride ?? (capped.length >= 4 ? 4 : capped.length === 2 ? 2 : 3)
+  const boxes = computeGameAugmentCardBoxesForCount(gameW, gameH, totalSlots)
+  return capped.map((augmentId, idx) => {
+    const slotIndex = idx as AugmentOfferSlotIndex
+    const box = boxes[slotIndex] || boxes[boxes.length - 1]
     return {
       slotIndex,
+      totalSlots,
       augmentId,
       xRatio: Number(box.centerXRatio.toFixed(4)),
       yRatio: GAME_BADGE_TOP_MODE_BOTTOM_BY_H,
@@ -249,46 +309,40 @@ export function buildResolutionAwareCardSlots(
   })
 }
 
-/**
- * Computes the narrow horizontal OCR crop rectangle covering ONLY the 3 Hextech Card Titles.
- * Ensures:
- *  - Zero overlap with HexBuddy's own HUD badges (<= 0.208*H or >= 0.742*H) -> NO OCR self-reading!
- *  - Aspect-ratio invariant horizontal bounds on 16:9, 16:10, 21:9, and 32:9!
- */
 export function computeOcrTitleStripCropRect(imgW: number, imgH: number): WindowBoundsRect {
-  const boxes = computeGameAugmentCardBoxes(imgW, imgH)
+  const boxes4 = computeGameAugmentCardBoxesForCount(imgW, imgH, 4)
   const padX = Math.round(0.02 * imgH)
-  const x0 = clamp(boxes[0].titleBand.x - padX, 0, imgW - 1)
-  const x1 = clamp(boxes[2].titleBand.x + boxes[2].titleBand.width + padX, x0 + 1, imgW)
+  const x0 = clamp(boxes4[0].titleBand.x - padX, 0, imgW - 1)
+  const x1 = clamp(boxes4[3].titleBand.x + boxes4[3].titleBand.width + padX, x0 + 1, imgW)
   const y0 = clamp(Math.round(0.372 * imgH), 0, imgH - 1)
   const y1 = clamp(Math.round(0.448 * imgH), y0 + 1, imgH)
-
-  return {
-    x: x0,
-    y: y0,
-    width: x1 - x0,
-    height: y1 - y0
-  }
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
 }
 
-/**
- * Determines which of the 3 card columns (0 = Left, 1 = Center, 2 = Right) a cursor point `(localX, localY)`
- * is hovering over inside a game window of `(gameW, gameH)`. Works accurately on 21:9 & 32:9 ultrawide!
- */
+export function computeOcrCardBandCropRect(imgW: number, imgH: number): WindowBoundsRect {
+  const boxes4 = computeGameAugmentCardBoxesForCount(imgW, imgH, 4)
+  const padX = Math.round(0.02 * imgH)
+  const x0 = clamp(boxes4[0].titleBand.x - padX, 0, imgW - 1)
+  const x1 = clamp(boxes4[3].titleBand.x + boxes4[3].titleBand.width + padX, x0 + 1, imgW)
+  const y0 = clamp(Math.round(0.24 * imgH), 0, imgH - 1)
+  const y1 = clamp(Math.round(0.452 * imgH), y0 + 1, imgH)
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 }
+}
+
 export function resolveHoveredAugmentSlot(
   localX: number,
   localY: number,
   gameW: number,
-  gameH: number
-): (0 | 1 | 2) | null {
+  gameH: number,
+  cardCount: 2 | 3 | 4 = 3
+): AugmentOfferSlotIndex | null {
   if (gameW <= 0 || gameH <= 0) return null
   const ry = localY / gameH
-  // Vertical active range covering card top down through reroll button
   if (ry < 0.18 || ry > 0.78) return null
 
-  const boxes = computeGameAugmentCardBoxes(gameW, gameH)
-  const maxHalfSpan = 0.22 * gameH
-  let bestSlot: (0 | 1 | 2) | null = null
+  const boxes = computeGameAugmentCardBoxesForCount(gameW, gameH, cardCount)
+  const maxHalfSpan = (GAME_CARD_STEP_BY_H / 2) * gameH
+  let bestSlot: AugmentOfferSlotIndex | null = null
   let bestDist = Infinity
 
   for (const box of boxes) {

@@ -15,6 +15,7 @@ import { HudFountainRoadmap } from './HudFountainRoadmap'
 interface HudTopControlBarProps {
   heroId: string
   currentHero?: HeroMeta
+  heroes: Record<string, HeroMeta>
   gameState: GameLiveState
   augments: Record<string, AugmentMeta>
   items: Record<string, ItemMeta>
@@ -48,6 +49,7 @@ interface HudTopControlBarProps {
 export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
   heroId,
   currentHero,
+  heroes,
   gameState,
   augments,
   items,
@@ -176,10 +178,10 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
               )
             })}
 
-            {gameState.pickedAugmentIds.length < 4 && (
+            {gameState.pickedAugmentIds.length < 6 && (
               <button
                 onClick={() => setShowAugPicker((v) => !v)}
-                title="手动补录或修正本局已拿海克斯（支持拼音如 zghs）"
+                title="手动补录或修正本局已拿海克斯（最多 6 个，支持拼音如 zghs）"
                 className="w-5 h-5 rounded bg-white/8 hover:bg-white/15 border border-dashed border-[#C8AA6E]/45 flex items-center justify-center text-[#E2C992] cursor-pointer"
               >
                 <Plus className="w-3 h-3" />
@@ -207,7 +209,7 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
                         disabled={already}
                         onClick={() => {
                           window.hexbuddy.updateAugments({
-                            pickedAugmentIds: [...gameState.pickedAugmentIds, am.id].slice(-4)
+                            pickedAugmentIds: [...gameState.pickedAugmentIds, am.id].slice(-6)
                           })
                           setShowAugPicker(false)
                           setAugSearchQuery('')
@@ -267,7 +269,9 @@ export const HudTopControlBar: React.FC<HudTopControlBarProps> = ({
           heroId={heroId}
           currentGold={gameState.currentGold}
           advice={advice}
+          heroes={heroes}
           items={items}
+          enemyCount={gameState.enemyHeroIds.length}
           opacityMode={opacityMode}
           densityMode={densityMode}
           copiedItemTip={copiedItemTip}

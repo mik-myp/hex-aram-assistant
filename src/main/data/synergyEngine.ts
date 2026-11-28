@@ -146,9 +146,23 @@ const ARCHETYPE_TEMPLATES: Array<{
   }
 ]
 
+const heroGuideCache = new WeakMap<SeedBundle, Map<string, HeroDetailGuide | null>>()
+
 export function buildHeroDetailGuide(bundle: SeedBundle, heroId: string): HeroDetailGuide | null {
+  let byHero = heroGuideCache.get(bundle)
+  if (!byHero) {
+    byHero = new Map<string, HeroDetailGuide | null>()
+    heroGuideCache.set(bundle, byHero)
+  }
+  if (byHero.has(heroId)) {
+    return byHero.get(heroId) ?? null
+  }
+
   const hero = bundle.heroes[heroId]
-  if (!hero) return null
+  if (!hero) {
+    byHero.set(heroId, null)
+    return null
+  }
 
   const rawRows = bundle.heroAugments[heroId] || []
   const boundMap = bundle.heroAugmentItems[heroId] || {}
@@ -239,7 +253,7 @@ export function buildHeroDetailGuide(bundle: SeedBundle, heroId: string): HeroDe
     .sort((a, b) => b.winRate - a.winRate)
     .slice(0, 8)
 
-  return {
+  const result: HeroDetailGuide = {
     hero,
     bestSpells,
     augments,
@@ -249,6 +263,8 @@ export function buildHeroDetailGuide(bundle: SeedBundle, heroId: string): HeroDe
     situationalItems,
     archetypes
   }
+  byHero.set(heroId, result)
+  return result
 }
 
 function deriveHeroArchetypes(

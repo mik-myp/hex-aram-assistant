@@ -6,6 +6,7 @@ import {
   Copy,
   Eye,
   FlaskConical,
+  History,
   Minus,
   Search,
   Settings,
@@ -82,6 +83,10 @@ export const SimulatorBar: React.FC<SimulatorBarProps> = ({
               <TabsTrigger value="augments">
                 <BookMarked />
                 <span>海克斯百科反查</span>
+              </TabsTrigger>
+              <TabsTrigger value="history">
+                <History />
+                <span>个人战绩本</span>
               </TabsTrigger>
               <TabsTrigger value="settings">
                 <Settings />

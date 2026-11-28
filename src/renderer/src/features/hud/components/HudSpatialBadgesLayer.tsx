@@ -1,8 +1,8 @@
 import React from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Dices, ShieldCheck } from 'lucide-react'
 import {
   computeClientBenchSlotLayout,
-  type computeGameAugmentCardBoxes
+  type GameAugmentCardBox
 } from '@shared/layoutGeometry'
 import type {
   AugmentMeta,
@@ -38,7 +38,7 @@ interface HudSpatialBadgesLayerProps {
   opacityMode: OverlayOpacityMode
   densityMode: HudDensityMode
   clientEffective: WindowBoundsRect
-  cardBoxes: ReturnType<typeof computeGameAugmentCardBoxes>
+  cardBoxes: GameAugmentCardBox[]
 }
 
 export const HudSpatialBadgesLayer: React.FC<HudSpatialBadgesLayerProps> = ({
@@ -138,7 +138,22 @@ export const HudSpatialBadgesLayer: React.FC<HudSpatialBadgesLayerProps> = ({
             }}
             className="absolute bg-[#09101D]/92 border border-[#C8AA6E]/45 rounded-lg p-3 space-y-2 shadow-xl w-56"
           >
-            <div className="text-[11px] font-bold text-[#E2C992]">我方阵容体检</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-bold text-[#E2C992]">我方阵容体检</div>
+              {advice?.threatRadar && (
+                <div className="flex items-center gap-1 text-[10px] tabular-nums">
+                  <span className="px-1 py-0.5 rounded bg-orange-500/20 text-orange-300">
+                    AD {advice.threatRadar.allyAdCount ?? 0}
+                  </span>
+                  <span className="px-1 py-0.5 rounded bg-sky-500/20 text-sky-300">
+                    AP {advice.threatRadar.allyApCount ?? 0}
+                  </span>
+                  <span className="px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                    坦 {advice.threatRadar.allyTankCount ?? 0}
+                  </span>
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-1.5 flex-wrap">
               {gameState.allyHeroIds.map((hid, i) => {
                 const ah = heroes[hid]
@@ -157,6 +172,12 @@ export const HudSpatialBadgesLayer: React.FC<HudSpatialBadgesLayerProps> = ({
                 )
               })}
             </div>
+            {advice?.recommendedSpells && (
+              <div className="text-[10.5px] text-[#5CF2E5] flex items-center gap-1 pt-0.5 border-t border-white/10">
+                <span className="text-[#94A3B8]">推荐技能:</span>
+                <span className="font-semibold">{advice.recommendedSpells}</span>
+              </div>
+            )}
             {advice?.threatRadar.allyDamageWarning && (
               <div className="text-[11px] text-amber-300 flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
@@ -169,6 +190,33 @@ export const HudSpatialBadgesLayer: React.FC<HudSpatialBadgesLayerProps> = ({
 
       {hasThreePick && enableThreePickBadges && (
         <div className="absolute inset-0 pointer-events-none z-30">
+          {advice?.rerollAdvice && cardBoxes.length > 0 && (
+            <div
+              style={{
+                left: `${Math.round(viewportW / 2 + offsetX)}px`,
+                top: `${
+                  badgeAtBottom
+                    ? Math.min(viewportH - 28, cardBoxes[0].badgeBottomModeTopY + Math.round(112 * hudUiScale))
+                    : Math.max(54, cardBoxes[0].badgeTopModeBottomY - Math.round(132 * hudUiScale))
+                }px`,
+                transform: `translateX(-50%) scale(${hudUiScale})`,
+                transformOrigin: 'top center'
+              }}
+              className={`absolute px-3 py-1 rounded-full border shadow-xl flex items-center gap-1.5 text-[11.5px] font-semibold whitespace-nowrap ${
+                advice.rerollAdvice.shouldReroll
+                  ? 'bg-[#28120B]/94 border-amber-400/75 text-amber-200'
+                  : 'bg-[#081924]/92 border-[#0AC8B9]/55 text-[#E2F7F5]'
+              }`}
+            >
+              {advice.rerollAdvice.shouldReroll ? (
+                <Dices className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              ) : (
+                <ShieldCheck className="w-3.5 h-3.5 text-[#3CE6D8] shrink-0" />
+              )}
+              <span>{advice.rerollAdvice.summary}</span>
+            </div>
+          )}
+
           {gameState.cardSlots.map((slot) => {
             const meta = augments[slot.augmentId]
             const ev = evalByAugId.get(slot.augmentId)
@@ -179,6 +227,7 @@ export const HudSpatialBadgesLayer: React.FC<HudSpatialBadgesLayerProps> = ({
             const isTrap = ev.verdict === 'TRAP' || ev.hasConflict
             const anchorY = badgeAtBottom ? box.badgeBottomModeTopY : box.badgeTopModeBottomY
             const finalBadgeScale = box.uiScale * userHudScale
+            const badgeCssWidth = Math.min(304, Math.round(box.badgeWidth / Math.max(0.5, box.uiScale)))
 
             return (
               <div
@@ -186,7 +235,7 @@ export const HudSpatialBadgesLayer: React.FC<HudSpatialBadgesLayerProps> = ({
                 style={{
                   left: `${box.centerX}px`,
                   top: `${anchorY}px`,
-                  width: '304px',
+                  width: `${badgeCssWidth}px`,
                   transform: badgeAtBottom
                     ? `translate(-50%, 0) scale(${finalBadgeScale})`
                     : `translate(-50%, -100%) scale(${finalBadgeScale})`,
